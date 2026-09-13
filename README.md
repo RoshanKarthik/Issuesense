@@ -2,9 +2,6 @@
 
 IssueSense is an evidence-grounded engineering intelligence platform. It answers engineering questions across code, documentation, delivery systems, and decision records while preserving source locations, authorization context, uncertainty, and verifiable citations.
 
-## Delivery status
-
-The repository is scaffolded for a GitHub-first vertical slice. The implementation roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md); architecture decisions and interfaces will be added as each phase is implemented and tested.
 
 ## Core rule
 
