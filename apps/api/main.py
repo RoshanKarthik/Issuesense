@@ -2,6 +2,8 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from apps.api.errors import install_error_handlers
+from apps.api.routes import query
 from packages.common import __version__
 from packages.common.settings import settings
 
@@ -10,6 +12,8 @@ app = FastAPI(
     description="Evidence-grounded engineering intelligence platform API",
     version=__version__,
 )
+install_error_handlers(app)
+app.include_router(query.router)
 
 
 class HealthResponse(BaseModel):

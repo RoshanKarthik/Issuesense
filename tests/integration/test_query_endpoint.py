@@ -1,0 +1,136 @@
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from apps.api.errors import install_error_handlers
+from apps.api.main import app
+from packages.common.errors import (
+    AuthorizationError,
+    ConnectorError,
+    EvidenceNotFoundError,
+    GuardrailError,
+    IssueSenseError,
+)
+
+client = TestClient(app)
+
+
+def test_valid_query_is_reported_as_not_implemented() -> None:
+    response = client.post("/v1/query", json={"question": "Where is auth handled?"})
+    assert response.status_code == 501
+    assert response.json() == {
+        "error": {
+            "code": "NOT_IMPLEMENTED",
+            "message": "Query answering is not available yet: no source connector is configured.",
+            "details": {},
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("body", "error_type"),
+    [
+        ({}, "missing"),
+        ({"question": "   "}, "string_too_short"),
+        ({"question": "ok", "scopes": ["read:*"]}, "extra_forbidden"),
+    ],
+)
+def test_invalid_query_uses_the_error_shape(body: dict[str, Any], error_type: str) -> None:
+    response = client.post("/v1/query", json=body)
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "INVALID_REQUEST"
+    assert error_type in {item["type"] for item in error["details"]["errors"]}
+
+
+def test_validation_errors_do_not_echo_input() -> None:
+    secret = "ghp_" + "x" * 36
+    response = client.post("/v1/query", json={"question": "ok", "token": secret})
+    assert response.status_code == 422
+    assert secret not in response.text
+
+
+def test_malformed_json_is_rejected() -> None:
+    response = client.post(
+        "/v1/query", content=b"{not json", headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_unknown_route_and_method_use_the_error_shape() -> None:
+    assert client.get("/v1/nope").json()["error"]["code"] == "NOT_FOUND"
+    response = client.get("/v1/query")
+    assert response.status_code == 405
+    assert response.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_openapi_documents_the_query_contract() -> None:
+    operation = client.get("/openapi.json").json()["paths"]["/v1/query"]["post"]
+    assert operation["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/QueryRequest"
+    )
+    responses = operation["responses"]
+    assert responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/QueryResponse"
+    )
+    for status in ("422", "501"):
+        assert responses[status]["content"]["application/json"]["schema"]["$ref"].endswith(
+            "/ErrorResponse"
+        )
+
+
+def _client_raising(exc: Exception) -> TestClient:
+    probe = FastAPI()
+    install_error_handlers(probe)
+
+    @probe.get("/boom")
+    async def boom() -> None:
+        raise exc
+
+    return TestClient(probe, raise_server_exceptions=False)
+
+
+@pytest.mark.parametrize(
+    ("exc", "status", "code", "details"),
+    [
+        (
+            AuthorizationError("No access to org/repo", {"scope": "read:repo"}),
+            403,
+            "FORBIDDEN",
+            {"scope": "read:repo"},
+        ),
+        (
+            GuardrailError("Prompt injection detected", {"rule": "tool_intent"}),
+            400,
+            "GUARDRAIL_VIOLATION",
+            {"rule": "tool_intent"},
+        ),
+        (
+            ConnectorError("GitHub is unavailable", {"url": "https://internal/api"}),
+            502,
+            "CONNECTOR_FAILURE",
+            {},
+        ),
+    ],
+)
+def test_domain_errors_map_to_explicit_statuses(
+    exc: IssueSenseError, status: int, code: str, details: dict[str, Any]
+) -> None:
+    response = _client_raising(exc).get("/boom")
+    assert response.status_code == status
+    assert response.json() == {"error": {"code": code, "message": exc.message, "details": details}}
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [RuntimeError("db password=hunter2"), IssueSenseError("internal"), EvidenceNotFoundError("x")],
+)
+def test_unexpected_errors_are_generic_500s(exc: Exception) -> None:
+    response = _client_raising(exc).get("/boom")
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {"code": "INTERNAL_ERROR", "message": "An internal error occurred.", "details": {}}
+    }
