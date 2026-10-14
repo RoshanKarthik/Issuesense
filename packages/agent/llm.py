@@ -1,10 +1,11 @@
 """Provider-neutral LLM interface. Business code depends on this, never on a vendor SDK.
 
-No provider adapter is implemented yet (the owner has not chosen one). `provider_from_settings`
-returns None when none is configured, and refuses a configured provider it has no adapter for,
-rather than silently answering without it.
+Adapters live in `packages.agent.providers` and are chosen by `LLM_PROVIDER`.
+`provider_from_settings` returns None when none is configured, and refuses a provider it has no
+adapter for (or one missing its model or key), rather than silently answering without it.
 """
 
+import re
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -42,17 +43,47 @@ class LlmConfigurationError(IssueSenseError):
     """An LLM provider is configured that IssueSense cannot use."""
 
 
-# Provider name -> adapter factory. Adapters are added once the owner picks a provider.
-_ADAPTERS: dict[str, type[LlmProvider]] = {}
+class LlmProviderError(IssueSenseError):
+    """The provider did not return a usable completion (network, HTTP or payload error)."""
+
+
+_THINKING = re.compile(r"<think>.*?</think>", re.S | re.I)
+_FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def extract_json_object(text: str) -> str:
+    """The JSON object in a model reply, without reasoning blocks, code fences or chatter around it.
+
+    Raises ValueError when the reply holds no object at all.
+    """
+    body = _FENCE.sub("", _THINKING.sub("", text).strip())
+    start, end = body.find("{"), body.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("the reply contains no JSON object")
+    return body[start : end + 1]
 
 
 def provider_from_settings(settings: Settings) -> LlmProvider | None:
     name = (settings.llm_provider or "").strip().lower()
     if not name:
         return None
-    if name not in _ADAPTERS:
+    from packages.agent.providers import ADAPTERS  # adapters import this module's types
+
+    if name not in ADAPTERS:
         raise LlmConfigurationError(
-            f"LLM_PROVIDER={name!r} is set, but no adapter exists for it yet.",
-            {"available": sorted(_ADAPTERS)},
+            f"LLM_PROVIDER={name!r} is set, but no adapter exists for it.",
+            {"available": sorted(ADAPTERS)},
         )
-    return _ADAPTERS[name]()
+    missing = [
+        variable
+        for variable, value in (
+            ("LLM_MODEL", settings.llm_model),
+            ("LLM_API_KEY", settings.llm_api_key),
+        )
+        if not value
+    ]
+    if missing:
+        raise LlmConfigurationError(
+            f"LLM_PROVIDER={name!r} also needs {' and '.join(missing)}.", {"missing": missing}
+        )
+    return ADAPTERS[name](settings)

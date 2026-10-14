@@ -17,7 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from packages.agent.llm import LlmMessage, LlmProvider, LlmRequest
+from packages.agent.llm import LlmMessage, LlmProvider, LlmRequest, extract_json_object
 from packages.common.models import Answer, Answerability, Citation, Claim, Evidence
 from packages.evidence.ranking import query_coverage
 
@@ -102,11 +102,12 @@ def build_messages(question: str, evidence: list[Evidence]) -> list[LlmMessage]:
 
 
 def parse_llm_answer(text: str, allowed_ids: set[str]) -> Answer:
-    body = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", text.strip())
     try:
-        parsed = _LlmAnswer.model_validate_json(body)
+        parsed = _LlmAnswer.model_validate_json(extract_json_object(text))
     except ValidationError as exc:
         raise LlmOutputError(f"not a valid answer object: {exc.error_count()} errors") from exc
+    except ValueError as exc:
+        raise LlmOutputError(str(exc)) from exc
     if parsed.answerability in {"SUFFICIENT", "PARTIALLY_ANSWERABLE"} and not parsed.claims:
         raise LlmOutputError("an answer that claims anything must list its claims")
     unknown = sorted({i for claim in parsed.claims for i in claim.evidence_ids} - allowed_ids)

@@ -50,8 +50,14 @@ class Settings(BaseSettings):
     # Project keys IssueSense searches when a question names none, e.g. ["ATLAS"].
     jira_projects: list[str] = Field(default_factory=list)
 
-    # LLM provider for written answers; empty means the deterministic evidence-listing answer.
+    # LLM provider for planning and written answers; empty means rule-based planning and the
+    # deterministic evidence-listing answer. The model and key are required once a provider is set.
     llm_provider: str | None = Field(default=None, validation_alias="LLM_PROVIDER")
+    llm_model: str | None = Field(default=None, validation_alias="LLM_MODEL")
+    llm_api_key: SecretStr | None = Field(default=None, validation_alias="LLM_API_KEY")
+    # Overrides the provider's default endpoint (for example a self-hosted NIM behind HTTPS).
+    llm_base_url: HttpsUrl | None = Field(default=None, validation_alias="LLM_BASE_URL")
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
 
     # Further connector and provider settings are added with the phase that introduces them.
 

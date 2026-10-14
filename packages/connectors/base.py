@@ -24,6 +24,9 @@ WILDCARD = "*"
 # A resource is one container in a source, such as a Jira project key. Plain identifiers only, so
 # a request can never smuggle a wildcard or a list into a scope check.
 ResourceId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
+# A single lowercase search word. Connectors may place it inside a source query (such as JQL), so
+# only letters, digits and inner hyphens are allowed: nothing that could quote or escape.
+SearchTerm = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$")]
 
 
 class ToolResult(BaseModel):

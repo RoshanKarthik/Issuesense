@@ -67,7 +67,7 @@ with Basic auth). The live run against the owner's Jira site is pending:
 ## Phase 2: Agentic planning, multi-hop, tracing
 
 - [x] 2.1 LangGraph typed workflow: plan → retrieve → assess evidence → synthesize → verify
-- [ ] 2.2 Planner: query rewrite and decomposition into sub-questions, including time ranges
+- [x] 2.2 Planner: query rewrite and decomposition into sub-questions, including time ranges
       ("this quarter")
 - [ ] 2.3 Multiple tool calls per question, and follow-up retrieval when the assessment finds gaps
       (multi-hop), with a step and cost budget
@@ -174,7 +174,7 @@ committing to it.
 
 ## Decisions still open
 
-- LLM provider and model (kept behind an interface, configured in `.env`)
+- LLM model (`LLM_MODEL`), chosen by the owner from NVIDIA's catalog
 - Notion and Gmail MCP servers, decided at steps 3.1 and 3.2
 
 ## Decisions made
@@ -183,6 +183,9 @@ committing to it.
 - Jira: Atlassian's official Rovo MCP server with API-token auth (an org admin enables API-token
   access in Atlassian Administration). Its tools can write, so IssueSense calls only an allowlist
   of read-only tools; the seed script (1.4) writes demo data with the Jira REST API, outside the agent
-- No LLM provider yet: Phase 1 ships the provider interface and the deterministic no-LLM answer
+- LLM provider: NVIDIA NIM through its OpenAI-compatible Chat Completions API (httpx, no SDK),
+  selected with `LLM_PROVIDER=nvidia_nim`; without it, rule-based planning and quoted answers
+- Orchestration: LangGraph 1.x as a core dependency (Phase 2)
+- Tracing: IssueSense's own trace events always; LangSmith only when `LANGSMITH_API_KEY` is set
 - Web client framework (e.g. Next.js or React + Vite), decided at Phase 7
 - Hosting accounts (Google Cloud, Neon, Vercel) are created by the project owner

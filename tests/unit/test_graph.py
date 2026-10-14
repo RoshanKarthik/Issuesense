@@ -2,11 +2,13 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 
 import pytest
 
 from packages.agent.graph import RunContext, build_graph
 from packages.agent.pipeline import QueryPipeline
+from packages.agent.planner import LlmPlanner
 from packages.agent.state import GraphState
 from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.errors import ConnectorError
@@ -144,3 +146,32 @@ async def test_lazy_connector_wraps_unexpected_open_errors() -> None:
     with pytest.raises(ConnectorError):
         await lazy.get()  # the failure is cached for the run, not retried silently
     await lazy.aclose()
+
+
+async def test_the_plan_is_part_of_the_result() -> None:
+    pipeline = QueryPipeline(
+        open_jira=Opener(StaticJiraConnector(ISSUES)),
+        site_url=SITE,
+        projects=["ATLAS"],
+        synthesizer=GroundedSynthesizer(None),
+        today=lambda: date(2026, 10, 15),
+    )
+    result = await pipeline.answer("What changed this quarter, and what are the risks?", READER)
+    assert result.plan is not None and result.plan.planner == "rules"
+    assert [q.id for q in result.plan.sub_questions] == ["Q1", "Q2"]
+    assert result.plan.time_range is not None
+
+
+async def test_unauthorized_question_is_never_planned() -> None:
+    provider = ScriptedProvider()  # any LLM call would fail: no replies are scripted
+    pipeline = QueryPipeline(
+        open_jira=Opener(StaticJiraConnector(ISSUES)),
+        site_url=SITE,
+        projects=["ATLAS"],
+        synthesizer=GroundedSynthesizer(None),
+        planner=LlmPlanner(provider),
+    )
+    outsider = AuthorizationContext(user_id="outsider", scopes=[])
+    result = await pipeline.answer("What changed?", outsider)
+    assert result.answer.answerability is Answerability.UNAUTHORIZED_EVIDENCE
+    assert result.plan is None and provider.requests == []

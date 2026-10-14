@@ -6,23 +6,10 @@ snapshot can always be logged or traced.
 
 from pydantic import BaseModel, Field
 
+from packages.agent.planner import QueryPlan
 from packages.agent.synthesis import SynthesisResult
 from packages.common.models import Answer, AuthorizationContext, Evidence
 from packages.evidence.citations import VerificationReport
-
-
-class SubQuestion(BaseModel):
-    """One focused question the retrieval step answers on its own."""
-
-    id: str  # "Q1", "Q2", ...
-    text: str
-
-
-class QueryPlan(BaseModel):
-    """How the question will be answered: the sub-questions retrieval works through."""
-
-    question: str
-    sub_questions: list[SubQuestion] = Field(min_length=1)
 
 
 class GraphState(BaseModel):

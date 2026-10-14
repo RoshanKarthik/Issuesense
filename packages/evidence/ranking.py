@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 from packages.common.models import Evidence
 
-_STOPWORDS = frozenset(
+STOPWORDS = frozenset(
     """a about above after all also am an and any are as at be been before being below between
     both but by can could did do does doing down during each few for from further had has have
     having he her here hers him his how i if in into is it its itself just me more most my no nor
@@ -59,7 +59,7 @@ def _aware(moment: datetime | None) -> datetime:
 
 
 def terms(text: str) -> list[str]:
-    return [_stem(t) for t in _TOKEN.findall(text.lower()) if t not in _STOPWORDS and len(t) > 1]
+    return [_stem(t) for t in _TOKEN.findall(text.lower()) if t not in STOPWORDS and len(t) > 1]
 
 
 _SYNONYMS = {

@@ -10,6 +10,7 @@ from apps.api.auth import Caller
 from apps.api.schemas import ErrorResponse, QueryRequest, QueryResponse
 from packages.agent.llm import provider_from_settings
 from packages.agent.pipeline import QueryPipeline
+from packages.agent.planner import planner_for
 from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.errors import GuardrailError
 from packages.common.models import Answer, Answerability
@@ -49,11 +50,13 @@ def _reject(assessment: InputAssessment) -> GuardrailError:
 @lru_cache(maxsize=1)
 def get_pipeline() -> QueryPipeline:
     """The configured pipeline (a FastAPI dependency, so tests can swap in fakes)."""
+    provider = provider_from_settings(settings)
     return QueryPipeline(
         open_jira=partial(open_jira_connector, settings) if settings.jira_configured else None,
         site_url=settings.jira_base_url,
         projects=settings.jira_projects,
-        synthesizer=GroundedSynthesizer(provider_from_settings(settings)),
+        synthesizer=GroundedSynthesizer(provider),
+        planner=planner_for(provider),
     )
 
 

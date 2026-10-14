@@ -13,17 +13,20 @@ synthesis, and no answer leaves without passing citation verification.
 
 import logging
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
-from packages.agent.state import GraphState, QueryPlan, SubQuestion
+from packages.agent.planner import Planner, RulePlanner
+from packages.agent.state import GraphState
 from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.errors import ConnectorError
-from packages.common.models import Answer, Answerability
+from packages.common.models import Answer, Answerability, utc_now
 from packages.connectors.base import RetrievalRequest, grant_for
 from packages.connectors.lazy import LazyConnector
 from packages.evidence.citations import verify_answer
@@ -51,6 +54,8 @@ class RunContext:
     site_url: str
     projects: list[str]  # configured project keys
     synthesizer: GroundedSynthesizer
+    planner: Planner = field(default_factory=RulePlanner)
+    today: Callable[[], date] = field(default=lambda: utc_now().date())
     retrieval_limit: int = 20
 
 
@@ -90,8 +95,15 @@ async def authorize(state: GraphState, runtime: Runtime[RunContext]) -> Update:
 
 
 async def plan(state: GraphState, runtime: Runtime[RunContext]) -> Update:
-    sub_question = SubQuestion(id="Q1", text=state.question)
-    return {"plan": QueryPlan(question=state.question, sub_questions=[sub_question])}
+    ctx = runtime.context
+    query_plan = await ctx.planner.plan(state.question, ctx.today(), state.projects)
+    logger.info(
+        "Planned %d sub-question(s) with %s%s",
+        len(query_plan.sub_questions),
+        query_plan.planner,
+        f" ({query_plan.note})" if query_plan.note else "",
+    )
+    return {"plan": query_plan}
 
 
 async def retrieve(state: GraphState, runtime: Runtime[RunContext]) -> Update:
