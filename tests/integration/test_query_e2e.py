@@ -168,8 +168,9 @@ def test_a_named_project_the_caller_cannot_read_is_skipped(
     body = _ask(client, "What changed in ATLAS and in HR this quarter?")
     assert "Skipped Jira project(s) you cannot read: HR." in body["answer"]["reasoning_summary"]
     assert body["answer"]["answerability"] == "PARTIALLY_ANSWERABLE"
-    searched = {args["jql"] for tool, args in fake.calls if tool == "searchJiraIssuesUsingJql"}
-    assert searched == {'project = "ATLAS" ORDER BY updated DESC'}
+    searched = fake.searches()
+    assert searched and all(jql.startswith('project = "ATLAS"') for jql in searched)
+    assert not any("HR" in jql or '"hr"' in jql for jql in searched)
 
 
 def test_issue_keys_of_unconfigured_projects_are_not_treated_as_projects(

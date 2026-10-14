@@ -10,6 +10,7 @@ Connectors reach live sources through MCP servers. Two rules hold for every conn
 
 import logging
 from abc import ABC, abstractmethod
+from datetime import date
 from typing import Annotated, Any, ClassVar, Protocol
 
 from pydantic import BaseModel, Field, StringConstraints
@@ -27,6 +28,8 @@ ResourceId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-
 # A single lowercase search word. Connectors may place it inside a source query (such as JQL), so
 # only letters, digits and inner hyphens are allowed: nothing that could quote or escape.
 SearchTerm = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$")]
+# The key of one item in a source, such as the Jira issue key "ATLAS-12".
+ItemKey = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
 
 
 class ToolResult(BaseModel):
@@ -80,9 +83,15 @@ class AllowlistedToolClient:
 
 
 class RetrievalRequest(BaseModel):
-    query: str = Field(min_length=1)
+    """What to retrieve. Every filter is typed and validated, so a connector can place it in a
+    source query without user text ever reaching that query."""
+
+    query: str = Field(min_length=1)  # the (sub-)question; used for logging and ranking only
     resources: list[ResourceId] = Field(min_length=1, max_length=20)
     limit: int = Field(default=20, ge=1, le=100)
+    terms: list[SearchTerm] = Field(default_factory=list, max_length=8)  # match any of them
+    updated_since: date | None = None  # items with activity on or after this day
+    keys: list[ItemKey] = Field(default_factory=list, max_length=20)  # fetch exactly these items
 
 
 class SourceRecord(BaseModel):

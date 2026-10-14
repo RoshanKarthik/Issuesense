@@ -1,7 +1,8 @@
 """A fake Atlassian Rovo MCP server holding the Project Atlas dataset, for connector tests."""
 
+import json
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -10,6 +11,8 @@ from packages.evaluation.atlas_dataset import SeedIssue
 
 SITE = "https://atlas-demo.atlassian.net"
 SEEDED_AT = datetime(2026, 10, 12, 9, 0, tzinfo=UTC)
+# "Today" for tests that ask about relative periods ("this quarter"): just after seeding.
+TODAY = date(2026, 10, 15)
 
 
 def _adf(text: str) -> dict[str, Any]:
@@ -84,6 +87,30 @@ class FakeJiraMcp:
         if tool in self.failing_tools:
             raise RuntimeError(f"{tool} is down (internal host jira-db-7)")
 
+    def text_of(self, issue: dict[str, Any]) -> str:
+        """Everything Jira's `text ~` searches: summary, description and comments."""
+        key = issue["key"]
+        parts = [issue["fields"]["summary"], json.dumps(issue["fields"]["description"])]
+        parts += [json.dumps(comment["body"]) for comment in self.comments.get(key, [])]
+        return " ".join(parts).lower()
+
+    def matches(self, issue: dict[str, Any], jql: str) -> bool:
+        """The subset of JQL IssueSense sends: project, key in, updated >=, text ~ (ORed)."""
+        project = re.match(r'project = "([A-Za-z0-9_-]+)"', jql)
+        if not project or not issue["key"].startswith(f"{project.group(1)}-"):
+            return False
+        if keys := re.search(r"key in \(([^)]*)\)", jql):
+            if issue["key"] not in {k.strip() for k in keys.group(1).split(",")}:
+                return False
+        if since := re.search(r'updated >= "(\d{4}-\d{2}-\d{2})"', jql):
+            if issue["fields"]["updated"][:10] < since.group(1):
+                return False
+        terms = re.findall(r'text ~ "([a-z0-9-]+)"', jql)
+        return not terms or any(term in self.text_of(issue) for term in terms)
+
+    def searches(self) -> list[str]:
+        return [args["jql"] for tool, args in self.calls if tool == "searchJiraIssuesUsingJql"]
+
     def tools_called(self) -> set[str]:
         return {tool for tool, _ in self.calls}
 
@@ -103,9 +130,7 @@ class FakeJiraMcp:
                 "searchJiraIssuesUsingJql",
                 {"cloudId": cloudId, "jql": jql, "maxResults": maxResults},
             )
-            match = re.match(r'project = "([A-Za-z0-9_-]+)"', jql)
-            project = match.group(1) if match else ""
-            issues = [i for k, i in fake.issues.items() if k.startswith(f"{project}-")]
+            issues = [i for i in fake.issues.values() if fake.matches(i, jql)]
             issues.sort(key=lambda i: i["fields"]["updated"], reverse=True)
             return {"issues": issues[:maxResults], "isLast": True}
 

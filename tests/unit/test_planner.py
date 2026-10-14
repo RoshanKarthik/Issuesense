@@ -17,8 +17,9 @@ async def test_rules_decompose_a_compound_question_by_aspect() -> None:
     assert plan.planner == "rules"
     assert [q.id for q in plan.sub_questions] == ["Q1", "Q2"]
     changes, risks = plan.sub_questions
-    assert changes.text.startswith("What changed") and "2026-10-01 to 2026-12-31" in changes.text
-    assert risks.text == "What are the open risks?"  # risks are current, not bound to the period
+    assert changes.text.startswith("What changed") and changes.time_bound
+    assert risks.text == "What are the open risks?"
+    assert not risks.time_bound  # risks are current, not bound to the period
     assert "risk" in risks.terms and "blocked" in risks.terms
     assert plan.rewritten.endswith(
         "this quarter (2026-10-01 to 2026-12-31) and identify the major risks."

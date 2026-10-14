@@ -54,6 +54,9 @@ class SubQuestion(BaseModel):
     id: str  # "Q1", "Q2", ...
     text: str
     terms: list[SearchTerm] = Field(default_factory=list, max_length=MAX_TERMS)
+    # Whether the plan's time range limits this sub-question ("what changed this quarter" does;
+    # "what are the open risks" asks about now, whenever the risk was raised).
+    time_bound: bool = True
 
 
 class QueryPlan(BaseModel):
@@ -77,6 +80,9 @@ class _Aspect(BaseModel):
     name: str
     triggers: frozenset[str]
     question: str
+    # Words to search for. Empty for aspects that full-text search cannot find: status and due
+    # date changes live in issue history, which Jira's text search does not cover, so those
+    # aspects read everything updated in the period instead.
     terms: tuple[str, ...]
     time_bound: bool  # whether the question's period applies to this aspect
 
@@ -88,7 +94,7 @@ ASPECTS = [
             "change changed changes summarize summarise summary progress new shipped done".split()
         ),
         question="What changed: status changes, moved dates and scope changes",
-        terms=("changed", "status", "moved", "update"),
+        terms=(),
         time_bound=True,
     ),
     _Aspect(
@@ -98,7 +104,7 @@ ASPECTS = [
             schedule timeline postponed""".split()
         ),
         question="Which deadlines or due dates moved, and why",
-        terms=("due", "deadline", "delay", "moved", "slip"),
+        terms=(),
         time_bound=True,
     ),
     _Aspect(
@@ -165,10 +171,7 @@ class RulePlanner:
         subject = clean_terms(asked, exclude=_GENERIC | triggers | project_words)
 
         if len(aspects) < 2:
-            terms = clean_terms(
-                [*asked, *(aspects[0].terms if aspects else ())],
-                exclude=_GENERIC | project_words,
-            )
+            terms = clean_terms([*subject, *(aspects[0].terms if aspects else ())])
             sub_questions = [SubQuestion(id="Q1", text=question, terms=terms)]
         else:
             sub_questions = []
@@ -176,10 +179,14 @@ class RulePlanner:
                 text = aspect.question
                 if subject:
                     text = f"{text} for {' '.join(subject)}"
-                if aspect.time_bound and time_range is not None:
-                    text = f"{text} ({time_range.describe()})"
-                terms = clean_terms([*subject, *aspect.terms])
-                sub_questions.append(SubQuestion(id=f"Q{index}", text=f"{text}?", terms=terms))
+                sub_questions.append(
+                    SubQuestion(
+                        id=f"Q{index}",
+                        text=f"{text}?",
+                        terms=clean_terms([*subject, *aspect.terms]),
+                        time_bound=aspect.time_bound,
+                    )
+                )
         return QueryPlan(
             question=question,
             rewritten=_rewrite(question, time_range),

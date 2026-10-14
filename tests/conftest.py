@@ -14,7 +14,7 @@ from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.settings import ApiKeyEntry, Settings
 from packages.connectors.jira import open_jira_connector
 from packages.evaluation.atlas_dataset import ATLAS_ISSUES
-from tests.integration.fake_atlassian import SITE, FakeJiraMcp
+from tests.integration.fake_atlassian import SITE, TODAY, FakeJiraMcp
 
 # A test-only key: it exists nowhere but in this process.
 TEST_API_KEY = "isk_test_" + "k" * 43
@@ -102,6 +102,7 @@ def use_fake_jira(
             site_url=SITE,
             projects=settings.jira_projects,
             synthesizer=GroundedSynthesizer(provider),
+            today=lambda: TODAY,
         )
         app.dependency_overrides[get_pipeline] = lambda: pipeline
         return fake_jira

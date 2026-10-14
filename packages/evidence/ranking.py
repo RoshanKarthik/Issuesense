@@ -118,3 +118,51 @@ def query_coverage(question: str, evidence: list[Evidence]) -> float:
     seen = {term for item in evidence for term in terms(f"{item.title or ''}\n{item.content}")}
     covered = [t for t in own if t in seen or any(s in seen for s in _SYNONYMS.get(t, ()))]
     return len(covered) / len(own)
+
+
+def rank_for_questions(questions: list[str], evidence: list[Evidence]) -> list[Evidence]:
+    """Evidence ranked for several questions at once (a question and its sub-questions).
+
+    Each question's scores are scaled so its best item scores 1, and an item keeps its highest
+    scaled score as `metadata["relevance"]`. The order interleaves the questions' rankings (every
+    question's best item, then every second-best, ...), so no sub-question is crowded out of a
+    size-limited answer. Items that match nothing follow, and flagged items always come last.
+    """
+    if not questions:
+        return rank_evidence("", evidence)
+    rankings: list[list[tuple[str, float]]] = []
+    best_scores: dict[str, float] = {}
+    for question in questions:
+        ranked = rank_evidence(question, evidence)
+        best = max((item.metadata["relevance"] for item in ranked), default=0.0)
+        scaled = [
+            (item.evidence_id, item.metadata["relevance"] / best if best else 0.0)
+            for item in ranked
+            if not item.metadata.get("injection_findings")
+        ]
+        rankings.append([entry for entry in scaled if entry[1] > 0])
+        for evidence_id, score in scaled:
+            best_scores[evidence_id] = max(best_scores.get(evidence_id, 0.0), score)
+
+    order: list[str] = []
+    for depth in range(max((len(r) for r in rankings), default=0)):
+        for ranking in rankings:
+            if depth < len(ranking) and ranking[depth][0] not in order:
+                order.append(ranking[depth][0])
+    by_id = {item.evidence_id: item for item in evidence}
+    unmatched = sorted(
+        (item for item in evidence if item.evidence_id not in order),
+        key=lambda item: (not item.metadata.get("injection_findings"), _aware(item.timestamp)),
+        reverse=True,
+    )
+    return [
+        item.model_copy(
+            update={
+                "metadata": {
+                    **item.metadata,
+                    "relevance": round(best_scores.get(item.evidence_id, 0.0), 4),
+                }
+            }
+        )
+        for item in [*(by_id[i] for i in order), *unmatched]
+    ]

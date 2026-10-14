@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from packages.agent.graph import RunContext, build_graph
 from packages.agent.planner import Planner, QueryPlan, RulePlanner
-from packages.agent.state import GraphState
+from packages.agent.state import Budget, GraphState, RetrievalRecord
 from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.models import Answer, AuthorizationContext, Evidence, utc_now
 from packages.connectors.lazy import ConnectorOpener, LazyConnector
@@ -30,6 +30,8 @@ class PipelineResult(BaseModel):
     projects: list[str] = Field(default_factory=list)  # projects actually searched
     mode: str = "none"
     plan: QueryPlan | None = None
+    retrievals: list[RetrievalRecord] = Field(default_factory=list)
+    llm_tokens: int = 0
 
 
 class QueryPipeline:
@@ -42,6 +44,7 @@ class QueryPipeline:
         synthesizer: GroundedSynthesizer,
         planner: Planner | None = None,
         today: Callable[[], date] | None = None,
+        budget: Budget | None = None,
         retrieval_limit: int = 20,
     ) -> None:
         self._open_jira = open_jira
@@ -50,6 +53,7 @@ class QueryPipeline:
         self._synthesizer = synthesizer
         self._planner = planner or RulePlanner()
         self._today = today or (lambda: utc_now().date())
+        self._budget = budget or Budget()
         self._limit = retrieval_limit
         self._graph = build_graph()
 
@@ -62,6 +66,7 @@ class QueryPipeline:
             synthesizer=self._synthesizer,
             planner=self._planner,
             today=self._today,
+            budget=self._budget,
             retrieval_limit=self._limit,
         )
         try:
@@ -86,4 +91,6 @@ class QueryPipeline:
             projects=state.projects,
             mode=synthesis.mode if synthesis else "none",
             plan=state.plan,
+            retrievals=state.retrievals,
+            llm_tokens=state.llm_tokens,
         )

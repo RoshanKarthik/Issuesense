@@ -1,8 +1,8 @@
 """Jira over MCP: Atlassian's official Rovo MCP server, read-only.
 
-Retrieval in Phase 1 is deliberately simple and injection-proof: the JQL contains only a validated
-project key (never user text), recent issues come back newest first, and the evidence step ranks
-them against the question. Phase 2's planner replaces this with targeted queries.
+Retrieval is injection-proof: JQL is built only from validated values (a project key, plain
+lowercase search words, a date and issue keys), never from user text. Issues come back newest
+first, and the evidence step ranks them against each sub-question.
 
 The argument names below follow Atlassian's documented tools. `verify()` checks them against the
 live server's input schemas at connection time, so a mismatch fails loudly instead of silently
@@ -12,6 +12,7 @@ returning nothing.
 import argparse
 import asyncio
 import logging
+import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -41,6 +42,8 @@ CHANGELOG_TOOL = "listJiraIssueChangelogs"
 # refused before any call leaves the process.
 JIRA_READ_TOOLS = frozenset({SEARCH_TOOL, COMMENTS_TOOL, CHANGELOG_TOOL})
 
+Details = tuple[list[dict[str, Any]], list[dict[str, Any]]]
+
 SEARCH_FIELDS = [
     "summary",
     "description",
@@ -59,9 +62,31 @@ SEARCH_FIELDS = [
 MAX_COMMENTS = 20
 
 
+_ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9_]+-\d+$")
+
+
 def project_jql(project: str) -> str:
     # `project` is a validated ResourceId (letters, digits, - and _), so quoting is enough.
     return f'project = "{project}" ORDER BY updated DESC'
+
+
+def search_jql(project: str, request: RetrievalRequest) -> str | None:
+    """JQL for one project and the request's filters; None when no requested key is in it.
+
+    Every value is validated before it gets here: search terms are lowercase letters, digits and
+    hyphens, keys match the Jira key format, and the date is a `date`. So quoting is enough.
+    """
+    clauses = [f'project = "{project}"']
+    if request.keys:
+        keys = [k for k in request.keys if _ISSUE_KEY.match(k) and k.startswith(f"{project}-")]
+        if not keys:
+            return None
+        clauses.append(f"key in ({', '.join(keys)})")
+    if request.updated_since is not None:
+        clauses.append(f'updated >= "{request.updated_since.isoformat()}"')
+    if request.terms:
+        clauses.append("(" + " OR ".join(f'text ~ "{term}"' for term in request.terms) + ")")
+    return f"{' AND '.join(clauses)} ORDER BY updated DESC"
 
 
 def _items(content: Any, *keys: str) -> list[dict[str, Any]]:
@@ -91,11 +116,13 @@ class JiraConnector(Connector):
         self._cloud_id = cloud_id
         self._detail_limit = detail_limit
         self._concurrency = asyncio.Semaphore(concurrency)
+        # Comments and history per issue, fetched once per connector (one query run).
+        self._detail_cache: dict[str, asyncio.Task[Details]] = {}
 
-    def _search_args(self, project: str, limit: int) -> dict[str, Any]:
+    def _search_args(self, project: str, limit: int, jql: str | None = None) -> dict[str, Any]:
         return {
             "cloudId": self._cloud_id,
-            "jql": project_jql(project),
+            "jql": jql or project_jql(project),
             "maxResults": limit,
             "fields": SEARCH_FIELDS,
         }
@@ -138,7 +165,14 @@ class JiraConnector(Connector):
             raise ConnectorError("Jira returned an error.", {"server": SERVER_NAME, "tool": tool})
         return result.content
 
-    async def _details(self, key: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    async def _details(self, key: str) -> Details:
+        task = self._detail_cache.get(key)
+        if task is None or (task.done() and (task.cancelled() or task.exception() is not None)):
+            task = asyncio.ensure_future(self._fetch_details(key))
+            self._detail_cache[key] = task
+        return await asyncio.shield(task)
+
+    async def _fetch_details(self, key: str) -> Details:
         comments, changelog = await asyncio.gather(
             self._call(COMMENTS_TOOL, self._comments_args(key)),
             self._call(CHANGELOG_TOOL, self._changelog_args(key)),
@@ -151,8 +185,12 @@ class JiraConnector(Connector):
     async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
         records: list[SourceRecord] = []
         for project in grants:
+            jql = search_jql(project, request)
+            if jql is None:
+                continue
             found = _items(
-                await self._call(SEARCH_TOOL, self._search_args(project, request.limit)), "issues"
+                await self._call(SEARCH_TOOL, self._search_args(project, request.limit, jql)),
+                "issues",
             )
             issues = [
                 issue for issue in found if str(issue.get("key", "")).startswith(f"{project}-")

@@ -69,7 +69,7 @@ with Basic auth). The live run against the owner's Jira site is pending:
 - [x] 2.1 LangGraph typed workflow: plan → retrieve → assess evidence → synthesize → verify
 - [x] 2.2 Planner: query rewrite and decomposition into sub-questions, including time ranges
       ("this quarter")
-- [ ] 2.3 Multiple tool calls per question, and follow-up retrieval when the assessment finds gaps
+- [x] 2.3 Multiple tool calls per question, and follow-up retrieval when the assessment finds gaps
       (multi-hop), with a step and cost budget
 - [ ] 2.4 Timeouts, retries and partial results: one failed tool call never discards other evidence
 - [ ] 2.5 A trace event for every node, plus LangSmith tracing (optional, off without a key)

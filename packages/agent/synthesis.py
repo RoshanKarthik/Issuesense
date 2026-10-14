@@ -45,6 +45,9 @@ Rules:
 NO_EVIDENCE_TEXT = "I found no authorized evidence that answers this question."
 # Evidence must cover this share of the question's terms to count as an answer at all...
 MIN_QUESTION_COVERAGE = 0.5
+# ...or, for a decomposed question, this share of the question and the full share of at least one
+# of its sub-questions (a compound question's terms are rarely all in the same items)...
+MIN_COMPOUND_COVERAGE = 0.25
 # ...and an item is quoted only if it scores at least this fraction of the best item.
 RELATIVE_RELEVANCE_CUTOFF = 0.25
 DETERMINISTIC_INTRO = (
@@ -90,14 +93,33 @@ def _escape(text: str) -> str:
     return text.replace("</evidence", "<\\/evidence")
 
 
-def build_messages(question: str, evidence: list[Evidence]) -> list[LlmMessage]:
+def answers_question(question: str, sub_questions: list[str], relevant: list[Evidence]) -> bool:
+    """Whether the evidence covers the question well enough to answer it at all."""
+    if not relevant:
+        return False
+    coverage = query_coverage(question, relevant)
+    if coverage >= MIN_QUESTION_COVERAGE:
+        return True
+    return coverage >= MIN_COMPOUND_COVERAGE and any(
+        query_coverage(sub_question, relevant) >= MIN_QUESTION_COVERAGE
+        for sub_question in sub_questions
+    )
+
+
+def build_messages(
+    question: str, evidence: list[Evidence], sub_questions: list[str] | None = None
+) -> list[LlmMessage]:
     blocks = "\n".join(
         f'<evidence id="{item.evidence_id}" source="{item.source}" location="{item.location}" '
         f'timestamp="{item.timestamp.isoformat() if item.timestamp else "unknown"}">\n'
         f"{_escape(item.content)}\n</evidence>"
         for item in evidence
     )
-    user = f"Question: {question}\n\nEvidence:\n{blocks}"
+    focus = ""
+    if sub_questions:
+        parts = "\n".join(f"- {sub_question}" for sub_question in sub_questions)
+        focus = f"\n\nCover these parts of the question:\n{parts}"
+    user = f"Question: {question}{focus}\n\nEvidence:\n{blocks}"
     return [LlmMessage(role="system", content=SYSTEM_PROMPT), LlmMessage(role="user", content=user)]
 
 
@@ -147,10 +169,21 @@ class GroundedSynthesizer:
         self._max_evidence = max_evidence
         self._excerpt_chars = excerpt_chars
 
+    @property
+    def uses_llm(self) -> bool:
+        return self._provider is not None
+
     async def synthesize(
-        self, question: str, ranked: list[Evidence], *, allow_llm: bool = True
+        self,
+        question: str,
+        ranked: list[Evidence],
+        *,
+        allow_llm: bool = True,
+        sub_questions: list[str] | None = None,
     ) -> SynthesisResult:
-        """Answer from ranked evidence. `allow_llm=False` forces quoting (after a failed check)."""
+        """Answer from ranked evidence. `allow_llm=False` forces quoting (after a failed check, or
+        when the LLM budget is spent); `sub_questions` are the parts of a decomposed question."""
+        sub_questions = sub_questions or []
         withheld = [item for item in ranked if item.metadata.get("injection_findings")]
         candidates = [
             item
@@ -165,7 +198,7 @@ class GroundedSynthesizer:
         ][: self._max_evidence]
         withheld_locations = [item.location for item in withheld]
 
-        if not relevant or query_coverage(question, relevant) < MIN_QUESTION_COVERAGE:
+        if not answers_question(question, sub_questions, relevant):
             return SynthesisResult(
                 answer=Answer(
                     text=NO_EVIDENCE_TEXT,
@@ -182,7 +215,7 @@ class GroundedSynthesizer:
             return self._deterministic(relevant, len(ranked), withheld_locations, FALLBACK_INTRO)
         if self._provider is not None:
             try:
-                return await self._llm(question, relevant, withheld_locations)
+                return await self._llm(question, relevant, withheld_locations, sub_questions)
             except LlmOutputError as exc:
                 logger.warning("Discarded the LLM answer: %s", exc)
             except Exception:
@@ -191,11 +224,11 @@ class GroundedSynthesizer:
         return self._deterministic(relevant, len(ranked), withheld_locations, DETERMINISTIC_INTRO)
 
     async def _llm(
-        self, question: str, relevant: list[Evidence], withheld: list[str]
+        self, question: str, relevant: list[Evidence], withheld: list[str], sub_questions: list[str]
     ) -> SynthesisResult:
         assert self._provider is not None
         response = await self._provider.complete(
-            LlmRequest(messages=build_messages(question, relevant))
+            LlmRequest(messages=build_messages(question, relevant, sub_questions))
         )
         answer = parse_llm_answer(response.text, {item.evidence_id for item in relevant})
         cited = {citation.evidence_id for citation in answer.citations}

@@ -32,6 +32,12 @@ class StaticJiraConnector(Connector):
         self.issues = issues
         self.requests: list[RetrievalRequest] = []
 
+    def _matches(self, item: dict[str, Any], request: RetrievalRequest) -> bool:
+        if request.keys and item["key"] not in request.keys:
+            return False
+        text = f"{item['fields']['summary']} {item['fields']['description']}".lower()
+        return not request.terms or any(term in text for term in request.terms)
+
     async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
         self.requests.append(request)
         return [
@@ -44,7 +50,7 @@ class StaticJiraConnector(Connector):
             )
             for project, scope in grants.items()
             for item in self.issues
-            if str(item["key"]).startswith(f"{project}-")
+            if str(item["key"]).startswith(f"{project}-") and self._matches(item, request)
         ]
 
 
