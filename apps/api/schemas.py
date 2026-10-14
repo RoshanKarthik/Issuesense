@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from packages.common.models import Answer, Evidence
+from packages.evidence.citations import VerificationReport
 from packages.guardrails.input import Triage
 
 MAX_QUESTION_LENGTH = 4000
@@ -55,6 +56,8 @@ class QueryResponse(BaseModel):
     triage: Triage = Triage.RETRIEVAL
     answer: Answer
     evidence: list[Evidence] = Field(default_factory=list)
+    # How the answer's citations were checked; absent when nothing was retrieved.
+    verification: VerificationReport | None = None
 
     @model_validator(mode="after")
     def _citations_reference_returned_evidence(self) -> Self:

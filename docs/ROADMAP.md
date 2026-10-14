@@ -55,10 +55,14 @@ One question → Jira → evidence → cited answer, with no agent loop yet.
 - [x] 1.7 LLM provider interface and grounded synthesis; without a configured LLM, a deterministic
       answer that lists retrieved evidence and invents nothing
 - [x] 1.8 Citation verification: every cited ID exists, its location is valid, and it supports the claim
-- [ ] 1.9 End-to-end and adversarial tests for the slice
+- [x] 1.9 End-to-end and adversarial tests for the slice
 
 **Exit:** an authorized question about the demo Jira project returns a cited answer; unsafe,
 unauthorized, empty-result and connector-failure cases each return an explicit, tested result.
+
+**Status:** met against the fake Atlassian MCP server (in-process and over real Streamable HTTP
+with Basic auth). The live run against the owner's Jira site is pending:
+, then , then a question to .
 
 ## Phase 2: Agentic planning, multi-hop, tracing
 

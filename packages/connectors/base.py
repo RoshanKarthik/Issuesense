@@ -101,21 +101,24 @@ def read_scope(source: str, resource: str) -> str:
     return f"{source}:read:{resource}"
 
 
+def grant_for(caller: AuthorizationContext, source: str, resource: str) -> str | None:
+    """The caller's scope that grants reading `resource` (exact before wildcard), or None."""
+    for scope in (read_scope(source, resource), read_scope(source, WILDCARD)):
+        if scope in caller.scopes:
+            return scope
+    return None
+
+
 class Connector(ABC):
     source: ClassVar[str]
 
     def authorize(self, caller: AuthorizationContext, request: RetrievalRequest) -> dict[str, str]:
         """Map each requested resource to the scope that grants it, or raise AuthorizationError."""
-        granted = set(caller.scopes)
-        wildcard = read_scope(self.source, WILDCARD)
         grants: dict[str, str] = {}
         denied: list[str] = []
         for resource in request.resources:
-            exact = read_scope(self.source, resource)
-            if exact in granted:
-                grants[resource] = exact
-            elif wildcard in granted:
-                grants[resource] = wildcard
+            if scope := grant_for(caller, self.source, resource):
+                grants[resource] = scope
             else:
                 denied.append(resource)
         if denied:

@@ -1,13 +1,20 @@
 import logging
 import uuid
+from functools import lru_cache, partial
 from http import HTTPStatus
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 
 from apps.api.auth import Caller
 from apps.api.schemas import ErrorResponse, QueryRequest, QueryResponse
+from packages.agent.llm import provider_from_settings
+from packages.agent.pipeline import QueryPipeline
+from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.errors import GuardrailError
 from packages.common.models import Answer, Answerability
+from packages.common.settings import settings
+from packages.connectors.jira import open_jira_connector
 from packages.guardrails.input import FindingCategory, InputAssessment, Triage, assess_question
 
 logger = logging.getLogger(__name__)
@@ -39,33 +46,56 @@ def _reject(assessment: InputAssessment) -> GuardrailError:
     )
 
 
+@lru_cache(maxsize=1)
+def get_pipeline() -> QueryPipeline:
+    """The configured pipeline (a FastAPI dependency, so tests can swap in fakes)."""
+    return QueryPipeline(
+        open_jira=partial(open_jira_connector, settings) if settings.jira_configured else None,
+        site_url=settings.jira_base_url,
+        projects=settings.jira_projects,
+        synthesizer=GroundedSynthesizer(provider_from_settings(settings)),
+    )
+
+
 @router.post(
     "/query",
     responses={
         HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
         HTTPStatus.UNAUTHORIZED: {"model": ErrorResponse},
         HTTPStatus.UNPROCESSABLE_ENTITY: {"model": ErrorResponse},
-        HTTPStatus.NOT_IMPLEMENTED: {"model": ErrorResponse},
     },
 )
-async def query(request: QueryRequest, caller: Caller) -> QueryResponse:
+async def query(
+    request: QueryRequest,
+    caller: Caller,
+    pipeline: Annotated[QueryPipeline, Depends(get_pipeline)],
+) -> QueryResponse:
     """Answer a question from authorized source evidence, citing every claim."""
     assessment = assess_question(request.question)
     if assessment.blocked:
         raise _reject(assessment)
 
+    query_id = uuid.uuid4().hex
     if assessment.triage is Triage.SMALL_TALK:
         return QueryResponse(
-            query_id=uuid.uuid4().hex,
+            query_id=query_id,
             triage=Triage.SMALL_TALK,
             answer=Answer(
                 text=USAGE_HINT, answerability=Answerability.NOT_APPLICABLE, citations=[]
             ),
         )
 
-    # Retrieval and synthesis arrive in later Phase 1 steps; until then the honest answer is that
-    # the capability does not exist, never a placeholder response.
-    raise HTTPException(
-        HTTPStatus.NOT_IMPLEMENTED,
-        "Query answering is not available yet: no source connector is configured.",
+    result = await pipeline.answer(assessment.normalized_text, caller)
+    logger.info(
+        "Answered query %s: %s, %d citation(s), projects %s",
+        query_id,
+        result.answer.answerability.value,
+        len(result.answer.citations),
+        ", ".join(result.projects) or "none",
+    )
+    return QueryResponse(
+        query_id=query_id,
+        answer=result.answer,
+        evidence=result.evidence,
+        verification=result.verification,
     )

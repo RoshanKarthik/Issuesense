@@ -105,3 +105,16 @@ def rank_evidence(question: str, evidence: list[Evidence]) -> list[Evidence]:
         scored.append((trusted, score, _aware(item.timestamp), -index, ranked))
     scored.sort(key=lambda entry: entry[:4], reverse=True)
     return [entry[4] for entry in scored]
+
+
+def query_coverage(question: str, evidence: list[Evidence]) -> float:
+    """Share of the question's own terms that the evidence mentions (directly or via a synonym).
+
+    1.0 when the question has no content terms, so the caller's relevance scores decide alone.
+    """
+    own = set(terms(question))
+    if not own:
+        return 1.0
+    seen = {term for item in evidence for term in terms(f"{item.title or ''}\n{item.content}")}
+    covered = [t for t in own if t in seen or any(s in seen for s in _SYNONYMS.get(t, ()))]
+    return len(covered) / len(own)

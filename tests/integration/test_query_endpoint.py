@@ -14,16 +14,16 @@ from packages.common.errors import (
 )
 
 
-def test_valid_query_is_reported_as_not_implemented(client: TestClient) -> None:
-    response = client.post("/v1/query", json={"question": "Where is auth handled?"})
-    assert response.status_code == 501
-    assert response.json() == {
-        "error": {
-            "code": "NOT_IMPLEMENTED",
-            "message": "Query answering is not available yet: no source connector is configured.",
-            "details": {},
-        }
-    }
+def test_without_jira_configured_a_question_is_an_explicit_tool_failure(
+    client: TestClient,
+) -> None:
+    response = client.post("/v1/query", json={"question": "What changed in Atlas?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["triage"] == "RETRIEVAL"
+    assert body["answer"]["answerability"] == "TOOL_FAILURE"
+    assert body["answer"]["text"] == "Jira is not configured on this server, so there is no answer."
+    assert body["answer"]["citations"] == [] and body["evidence"] == []
 
 
 @pytest.mark.parametrize(
@@ -85,7 +85,8 @@ def test_mutation_request_is_refused_as_read_only(client: TestClient) -> None:
 
 def test_question_with_only_invisible_characters_removed_still_proceeds(client: TestClient) -> None:
     response = client.post("/v1/query", json={"question": "What chan​ged in Atlas?"})
-    assert response.status_code == 501
+    assert response.status_code == 200
+    assert response.json()["triage"] == "RETRIEVAL"
 
 
 def test_validation_errors_do_not_echo_input(client: TestClient) -> None:
@@ -119,7 +120,7 @@ def test_openapi_documents_the_query_contract(client: TestClient) -> None:
     assert responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/QueryResponse"
     )
-    for status in ("400", "401", "422", "501"):
+    for status in ("400", "401", "422"):
         assert responses[status]["content"]["application/json"]["schema"]["$ref"].endswith(
             "/ErrorResponse"
         )

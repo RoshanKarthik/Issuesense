@@ -103,3 +103,12 @@ def test_headline_and_deadline_questions_surface_the_story() -> None:
     } <= headline
     assert fake.keys["atlas-feedback-import"] not in headline
     assert fake.keys["atlas-card-auth"] in top("Which deadlines slipped and why?", n=3)
+
+
+def test_query_coverage_counts_direct_and_synonym_matches() -> None:
+    from packages.evidence.ranking import query_coverage
+
+    slip = _item("E1", "Change to ATLAS-3", "Due date changed from Nov 7 to Nov 21", day=5)
+    assert query_coverage("Which deadlines slipped?", [slip]) == 1.0
+    assert query_coverage("quarterly marketing budget kubernetes", [slip]) == 0.0
+    assert query_coverage("the and of", [slip]) == 1.0

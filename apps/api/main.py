@@ -39,6 +39,9 @@ def run() -> None:
     logging.basicConfig(
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    # The HTTP clients log every request at INFO; MCP sessions make several per question.
+    for noisy in ("httpx", "httpx2"):
+        logging.getLogger(noisy).setLevel(max(logging.WARNING, logging.getLogger().level))
     uvicorn.run(
         app,
         host=settings.api_host,

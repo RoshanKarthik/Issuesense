@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from packages.agent.llm import LlmMessage, LlmProvider, LlmRequest
 from packages.common.models import Answer, Answerability, Citation, Claim, Evidence
+from packages.evidence.ranking import query_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ Rules:
     "reasoning_summary": "<one or two sentences on how the evidence supports the answer>"}"""
 
 NO_EVIDENCE_TEXT = "I found no authorized evidence that answers this question."
+# Evidence must cover this share of the question's terms to count as an answer at all...
+MIN_QUESTION_COVERAGE = 0.5
+# ...and an item is quoted only if it scores at least this fraction of the best item.
+RELATIVE_RELEVANCE_CUTOFF = 0.25
 DETERMINISTIC_INTRO = (
     "No language model is configured, so here is the most relevant evidence, quoted directly:"
 )
@@ -141,16 +146,25 @@ class GroundedSynthesizer:
         self._max_evidence = max_evidence
         self._excerpt_chars = excerpt_chars
 
-    async def synthesize(self, question: str, ranked: list[Evidence]) -> SynthesisResult:
+    async def synthesize(
+        self, question: str, ranked: list[Evidence], *, allow_llm: bool = True
+    ) -> SynthesisResult:
+        """Answer from ranked evidence. `allow_llm=False` forces quoting (after a failed check)."""
         withheld = [item for item in ranked if item.metadata.get("injection_findings")]
-        relevant = [
+        candidates = [
             item
             for item in ranked
             if not item.metadata.get("injection_findings") and item.metadata.get("relevance", 0) > 0
+        ]
+        best = max((item.metadata["relevance"] for item in candidates), default=0.0)
+        relevant = [
+            item
+            for item in candidates
+            if item.metadata["relevance"] >= best * RELATIVE_RELEVANCE_CUTOFF
         ][: self._max_evidence]
         withheld_locations = [item.location for item in withheld]
 
-        if not relevant:
+        if not relevant or query_coverage(question, relevant) < MIN_QUESTION_COVERAGE:
             return SynthesisResult(
                 answer=Answer(
                     text=NO_EVIDENCE_TEXT,
@@ -163,6 +177,8 @@ class GroundedSynthesizer:
                 withheld=withheld_locations,
             )
 
+        if self._provider is not None and not allow_llm:
+            return self._deterministic(relevant, len(ranked), withheld_locations, FALLBACK_INTRO)
         if self._provider is not None:
             try:
                 return await self._llm(question, relevant, withheld_locations)

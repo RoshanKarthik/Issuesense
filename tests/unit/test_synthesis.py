@@ -196,3 +196,18 @@ def test_no_provider_configured_means_deterministic_mode() -> None:
 def test_an_unknown_provider_is_refused_not_ignored() -> None:
     with pytest.raises(LlmConfigurationError, match="no adapter"):
         provider_from_settings(Settings(_env_file=None, llm_provider="someprovider"))
+
+
+async def test_a_single_incidental_word_match_is_not_an_answer() -> None:
+    review = _ev("E1", "Quarterly PCI security review sign-off", relevance=2.0)
+    result = await GroundedSynthesizer(None).synthesize(
+        "What is the quarterly marketing budget for Kubernetes?", [review]
+    )
+    assert result.answer.answerability is Answerability.INSUFFICIENT_EVIDENCE
+
+
+async def test_weak_matches_far_below_the_best_are_not_quoted() -> None:
+    strong = _ev("E1", "The vendor sandbox returns 503 errors.", relevance=10.0)
+    weak = _ev("E2", "Vendor list updated.", relevance=1.0)
+    result = await GroundedSynthesizer(None).synthesize("vendor sandbox errors", [strong, weak])
+    assert [e.evidence_id for e in result.evidence] == ["E1"]
