@@ -10,6 +10,10 @@ class IssueSenseError(Exception):
         self.details = details or {}
 
 
+class AuthenticationError(IssueSenseError):
+    """Raised when the caller's identity cannot be established (missing or invalid credentials)."""
+
+
 class AuthorizationError(IssueSenseError):
     """Raised when a request fails authorization checks."""
 

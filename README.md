@@ -20,11 +20,23 @@ pip install -e ".[dev]"
 cp .env.example .env             # only the ISSUESENSE_* runtime settings are read so far
 ```
 
+Create an API key. The key is printed once; only its hash goes into configuration:
+
+```bash
+issuesense-create-key --user-id you --scope jira:read:ATLAS
+```
+
+Add the printed entry to the `ISSUESENSE_API_KEYS` JSON list in `.env`, e.g.
+`ISSUESENSE_API_KEYS=[{"key_id": "...", "sha256": "...", "user_id": "you", "scopes": ["jira:read:ATLAS"]}]`.
+Scopes are per source and project: `jira:read:ATLAS` grants one project, `jira:read:*` all of them.
+
 Run the API (serves on `ISSUESENSE_API_HOST:ISSUESENSE_API_PORT`, default `127.0.0.1:8000`):
 
 ```bash
 issuesense-api
 curl http://127.0.0.1:8000/health
+curl -H "Authorization: Bearer $ISSUESENSE_KEY" -H "Content-Type: application/json" \
+  -d '{"question": "What changed in Project Atlas this quarter?"}' http://127.0.0.1:8000/v1/query
 ```
 
 ## Checks

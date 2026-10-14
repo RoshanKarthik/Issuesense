@@ -28,6 +28,7 @@ class AuthorizationContext(BaseModel):
     user_id: str
     scopes: list[str] = Field(default_factory=list)
     tenant_id: str | None = None
+    credential_id: str | None = None  # which API key authenticated the caller
 
 
 class Query(BaseModel):

@@ -4,6 +4,7 @@ from http import HTTPStatus
 
 from fastapi import APIRouter, HTTPException
 
+from apps.api.auth import Caller
 from apps.api.schemas import ErrorResponse, QueryRequest, QueryResponse
 from packages.common.errors import GuardrailError
 from packages.common.models import Answer, Answerability
@@ -42,11 +43,12 @@ def _reject(assessment: InputAssessment) -> GuardrailError:
     "/query",
     responses={
         HTTPStatus.BAD_REQUEST: {"model": ErrorResponse},
+        HTTPStatus.UNAUTHORIZED: {"model": ErrorResponse},
         HTTPStatus.UNPROCESSABLE_ENTITY: {"model": ErrorResponse},
         HTTPStatus.NOT_IMPLEMENTED: {"model": ErrorResponse},
     },
 )
-async def query(request: QueryRequest) -> QueryResponse:
+async def query(request: QueryRequest, caller: Caller) -> QueryResponse:
     """Answer a question from authorized source evidence, citing every claim."""
     assessment = assess_question(request.question)
     if assessment.blocked:

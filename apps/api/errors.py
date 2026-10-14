@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.api.schemas import ErrorBody, ErrorResponse
 from packages.common.errors import (
+    AuthenticationError,
     AuthorizationError,
     ConnectorError,
     GuardrailError,
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Most specific first: the first matching class decides the status and code.
 _DOMAIN_ERRORS: list[tuple[type[IssueSenseError], HTTPStatus, str]] = [
+    (AuthenticationError, HTTPStatus.UNAUTHORIZED, "UNAUTHENTICATED"),
     (AuthorizationError, HTTPStatus.FORBIDDEN, "FORBIDDEN"),
     (GuardrailError, HTTPStatus.BAD_REQUEST, "GUARDRAIL_VIOLATION"),
     (ConnectorError, HTTPStatus.BAD_GATEWAY, "CONNECTOR_FAILURE"),
@@ -28,10 +30,14 @@ _DOMAIN_ERRORS: list[tuple[type[IssueSenseError], HTTPStatus, str]] = [
 
 
 def error_response(
-    status: int, code: str, message: str, details: dict[str, Any] | None = None
+    status: int,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     body = ErrorResponse(error=ErrorBody(code=code, message=message, details=details or {}))
-    return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+    return JSONResponse(status_code=status, content=body.model_dump(mode="json"), headers=headers)
 
 
 async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
@@ -63,7 +69,9 @@ async def _domain_error(request: Request, exc: Exception) -> JSONResponse:
                 # Upstream details can hold internal URLs or payloads: log them, don't return them.
                 logger.warning("%s: %s", code, exc.message, extra={"details": exc.details})
                 return error_response(status, code, exc.message)
-            return error_response(status, code, exc.message, exc.details)
+            # RFC 9110: a 401 must say which authentication scheme the server accepts.
+            headers = {"WWW-Authenticate": "Bearer"} if status == HTTPStatus.UNAUTHORIZED else None
+            return error_response(status, code, exc.message, exc.details, headers)
     return await _unexpected_error(request, exc)
 
 

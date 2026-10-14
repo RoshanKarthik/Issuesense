@@ -36,6 +36,7 @@ observability = [
 
 [project.scripts]
 issuesense-api = "apps.api.main:run"
+issuesense-create-key = "apps.api.auth:create_key_cli"
 
 [tool.hatch.version]
 path = "packages/common/__init__.py"
