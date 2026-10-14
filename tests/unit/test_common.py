@@ -97,3 +97,40 @@ def test_default_timestamps_are_timezone_aware() -> None:
     event = TraceEvent(event_id="T1", node_id="triage", event_type="started")
     assert query.timestamp.utcoffset() is not None
     assert event.timestamp.utcoffset() is not None
+
+
+def test_jira_settings_use_the_documented_env_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", "https://atlas-demo.atlassian.net/")
+    monkeypatch.setenv("JIRA_EMAIL", "owner@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "test-token-value")
+    monkeypatch.setenv("ISSUESENSE_JIRA_PROJECTS", '["ATLAS"]')
+    s = Settings(_env_file=None)
+    assert s.jira_base_url == "https://atlas-demo.atlassian.net"
+    assert s.jira_email == "owner@example.com"
+    assert s.jira_api_token is not None
+    assert s.jira_api_token.get_secret_value() == "test-token-value"
+    assert s.jira_projects == ["ATLAS"]
+    assert s.jira_mcp_url == "https://mcp.atlassian.com/v2/mcp"
+    assert s.jira_configured
+    assert "test-token-value" not in repr(s)
+
+
+def test_jira_is_unconfigured_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    assert not Settings(_env_file=None).jira_configured
+
+
+def test_blank_jira_values_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"):
+        monkeypatch.setenv(name, "")
+    s = Settings(_env_file=None)
+    assert s.jira_base_url is None
+    assert not s.jira_configured
+
+
+@pytest.mark.parametrize("url", ["http://atlas-demo.atlassian.net", "atlas-demo.atlassian.net"])
+def test_jira_base_url_must_be_https(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    monkeypatch.setenv("JIRA_BASE_URL", url)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

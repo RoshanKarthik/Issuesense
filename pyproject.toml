@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1.0",
   "httpx>=0.28,<1.0",
+  "mcp>=2.3,<3.0",
   "pydantic>=2.10,<3.0",
   "pydantic-settings>=2.7,<3.0",
   "uvicorn[standard]>=0.34,<1.0",
@@ -37,6 +38,7 @@ observability = [
 [project.scripts]
 issuesense-api = "apps.api.main:run"
 issuesense-create-key = "apps.api.auth:create_key_cli"
+issuesense-seed-jira = "packages.evaluation.seed_jira:seed_jira_cli"
 
 [tool.hatch.version]
 path = "packages/common/__init__.py"

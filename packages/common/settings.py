@@ -1,9 +1,21 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Sha256Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+def _strip_trailing_slash(url: str) -> str:
+    return url.rstrip("/")
+
+
+# An https:// URL without a trailing slash, kept as a plain string.
+HttpsUrl = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, pattern=r"^https://[^\s/]+(/\S*)?$"),
+    AfterValidator(_strip_trailing_slash),
+]
 
 
 class ApiKeyEntry(BaseModel):
@@ -30,14 +42,29 @@ class Settings(BaseSettings):
     # every authenticated endpoint refuses all requests.
     api_keys: list[ApiKeyEntry] = Field(default_factory=list)
 
-    # Connector and provider settings are added with the phase that introduces them.
+    # Jira (demo workspace). The site URL doubles as the MCP `cloudId`.
+    jira_base_url: HttpsUrl | None = Field(default=None, validation_alias="JIRA_BASE_URL")
+    jira_email: str | None = Field(default=None, validation_alias="JIRA_EMAIL")
+    jira_api_token: SecretStr | None = Field(default=None, validation_alias="JIRA_API_TOKEN")
+    jira_mcp_url: HttpsUrl = "https://mcp.atlassian.com/v2/mcp"
+    # Project keys IssueSense searches when a question names none, e.g. ["ATLAS"].
+    jira_projects: list[str] = Field(default_factory=list)
+
+    # Further connector and provider settings are added with the phase that introduces them.
 
     model_config = SettingsConfigDict(
         env_prefix="ISSUESENSE_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
+        # A blank `KEY=` line (as in .env.example) means "not set", not an invalid empty value.
+        env_ignore_empty=True,
     )
+
+    @property
+    def jira_configured(self) -> bool:
+        return bool(self.jira_base_url and self.jira_email and self.jira_api_token)
 
 
 settings = Settings()

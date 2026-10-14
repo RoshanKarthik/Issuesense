@@ -44,9 +44,9 @@ One question → Jira → evidence → cited answer, with no agent loop yet.
 - [x] 1.3 Caller authentication (API keys mapped to a user and scopes) and the MCP connector
       interface, with an access check before every retrieval and an allowlist of read-only tools per
       MCP server
-- [ ] 1.4 Demo workspace: a seed script that fills a test Jira project with a realistic quarter of
+- [x] 1.4 Demo workspace: a seed script that fills a test Jira project with a realistic quarter of
       "Project Atlas" work (goals, slipped deadlines, blockers, status changes). Used by the demo and
-      the evals; never your personal data
+      the evals; never your personal data. *Live run pending: needs the owner's Jira site.*
 - [ ] 1.5 Real Jira connector over MCP: IssueSense is the MCP client (official `mcp` SDK) and talks to
       Atlassian's official Rovo MCP server with API-token auth. Only allowlisted read-only tools are
       callable; tests run against a fake in-memory MCP server

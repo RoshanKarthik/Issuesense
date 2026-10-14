@@ -1,11 +1,13 @@
-import httpx
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from apps.api.auth import ApiKeyStore, get_api_key_store
 from apps.api.main import app
 
 
-def _assert_unauthenticated(response: httpx.Response) -> None:
+def _assert_unauthenticated(response: Any) -> None:
+    # Any: the test client's response class comes from httpx or httpx2, whichever is installed.
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNAUTHENTICATED"
     assert response.headers["www-authenticate"] == "Bearer"
