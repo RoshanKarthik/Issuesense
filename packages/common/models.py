@@ -66,12 +66,24 @@ class Citation(BaseModel):
     location_offset: str | None = None
 
 
+class Claim(BaseModel):
+    """One statement in an answer and the evidence that supports it."""
+
+    text: str
+    citations: list[Citation] = Field(min_length=1)
+
+
 class Answer(BaseModel):
-    """The final grounded synthesis."""
+    """The final grounded synthesis.
+
+    `claims` holds every material statement with its own citations; `citations` is their union,
+    kept for clients that only need the list of sources.
+    """
 
     text: str
     answerability: Answerability
     citations: list[Citation]
+    claims: list[Claim] = Field(default_factory=list)
     reasoning_summary: str | None = None
 
 

@@ -52,7 +52,7 @@ One question → Jira → evidence → cited answer, with no agent loop yet.
       callable; tests run against a fake in-memory MCP server. *Live check pending:
       `issuesense-check-jira` once the owner's site is set up.*
 - [x] 1.6 Normalize Jira issues, comments and changelogs into `Evidence` with URLs and locations
-- [ ] 1.7 LLM provider interface and grounded synthesis; without a configured LLM, a deterministic
+- [x] 1.7 LLM provider interface and grounded synthesis; without a configured LLM, a deterministic
       answer that lists retrieved evidence and invents nothing
 - [ ] 1.8 Citation verification: every cited ID exists, its location is valid, and it supports the claim
 - [ ] 1.9 End-to-end and adversarial tests for the slice

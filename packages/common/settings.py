@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Project keys IssueSense searches when a question names none, e.g. ["ATLAS"].
     jira_projects: list[str] = Field(default_factory=list)
 
+    # LLM provider for written answers; empty means the deterministic evidence-listing answer.
+    llm_provider: str | None = Field(default=None, validation_alias="LLM_PROVIDER")
+
     # Further connector and provider settings are added with the phase that introduces them.
 
     model_config = SettingsConfigDict(
