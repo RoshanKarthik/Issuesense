@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # Project keys IssueSense searches when a question names none, e.g. ["ATLAS"].
     jira_projects: list[str] = Field(default_factory=list)
 
+    # Resilience of calls to MCP servers: each tool call gets this long per attempt, failed or slow
+    # calls are retried, and one whole retrieval (a search plus its details) is cut off after
+    # `retrieval_timeout_seconds` without discarding what other retrievals found.
+    mcp_call_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
+    mcp_call_attempts: int = Field(default=2, ge=1, le=5)
+    mcp_retry_backoff_seconds: float = Field(default=0.5, ge=0, le=30)
+    retrieval_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+
     # LLM provider for planning and written answers; empty means rule-based planning and the
     # deterministic evidence-listing answer. The model and key are required once a provider is set.
     llm_provider: str | None = Field(default=None, validation_alias="LLM_PROVIDER")

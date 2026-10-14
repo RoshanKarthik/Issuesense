@@ -43,7 +43,8 @@ class RetrievalRecord(BaseModel):
     round: int  # 1 for the planned searches, 2+ for follow-ups
     items: int = 0  # evidence items it returned
     new_evidence: list[str] = Field(default_factory=list)  # IDs it added to the pool
-    error: str | None = None  # a safe description when it failed
+    error: str | None = None  # a safe description when it failed (nothing was returned)
+    warnings: list[str] = Field(default_factory=list)  # calls that failed while the rest worked
 
 
 class GraphState(BaseModel):

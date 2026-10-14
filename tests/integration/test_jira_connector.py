@@ -13,6 +13,7 @@ from packages.connectors.jira import (
     project_jql,
 )
 from packages.connectors.mcp_session import basic_auth_header, connect
+from packages.connectors.resilience import RetryPolicy
 from packages.evaluation.atlas_dataset import ATLAS_ISSUES
 from tests.integration.fake_atlassian import SITE, FakeJiraMcp
 
@@ -109,15 +110,56 @@ async def test_write_tools_on_the_server_are_unreachable(
     assert fake_jira.tools_called() <= JIRA_READ_TOOLS
 
 
-async def test_tool_failure_is_a_connector_error_without_internals(
+async def test_a_failed_detail_call_keeps_everything_else(
     fake_jira: FakeJiraMcp, jira_settings: Callable[..., Settings]
 ) -> None:
     fake_jira.failing_tools.add("listJiraIssueChangelogs")
     async with open_jira_connector(jira_settings(), fake_jira.server()) as jira:
+        result = await jira.retrieve(ATLAS_READER, _request())
+    assert len(result.records) == len(ATLAS_ISSUES)
+    assert all(not r.payload["details_fetched"] for r in result.records)
+    assert sum(len(r.payload["comments"]) for r in result.records) > 0  # comments survived
+    assert {f.tool for f in result.failures} == {"listJiraIssueChangelogs"}
+    assert len(result.failures) == len(ATLAS_ISSUES)
+    assert "jira-db-7" not in str([f.model_dump() for f in result.failures])
+
+
+async def test_a_failed_search_is_a_connector_error_without_internals(
+    fake_jira: FakeJiraMcp, jira_settings: Callable[..., Settings]
+) -> None:
+    fake_jira.failing_tools.add("searchJiraIssuesUsingJql")
+    async with open_jira_connector(jira_settings(), fake_jira.server()) as jira:
         with pytest.raises(ConnectorError) as excinfo:
             await jira.retrieve(ATLAS_READER, _request())
-    assert excinfo.value.details == {"server": "atlassian", "tool": "listJiraIssueChangelogs"}
-    assert "jira-db-7" not in str(excinfo.value.details)
+    assert excinfo.value.details == {"server": "atlassian"}
+    assert "jira-db-7" not in str(excinfo.value)
+    # The failing search was tried twice (the default retry policy), then given up.
+    assert len(fake_jira.searches()) == 2
+
+
+async def test_transient_failures_are_retried(
+    fake_jira: FakeJiraMcp, jira_settings: Callable[..., Settings]
+) -> None:
+    fake_jira.flaky = {"searchJiraIssuesUsingJql": 1, "listJiraIssueComments": 3}
+    async with open_jira_connector(jira_settings(), fake_jira.server()) as jira:
+        jira._retry = RetryPolicy(attempts=2, backoff_seconds=0)
+        result = await jira.retrieve(ATLAS_READER, _request())
+    assert len(result.records) == len(ATLAS_ISSUES)
+    assert len(fake_jira.searches()) == 2
+    # Three comment calls failed once each and were retried; nothing is missing.
+    assert result.failures == []
+
+
+async def test_a_slow_call_times_out_and_is_reported(
+    fake_jira: FakeJiraMcp, jira_settings: Callable[..., Settings]
+) -> None:
+    fake_jira.delays = {"listJiraIssueComments": 5.0}
+    async with open_jira_connector(jira_settings(), fake_jira.server()) as jira:
+        jira._retry = RetryPolicy(attempts=1, timeout_seconds=0.05)
+        jira._detail_limit = 2
+        result = await jira.retrieve(ATLAS_READER, _request())
+    assert len(result.records) == len(ATLAS_ISSUES)
+    assert [f.tool for f in result.failures] == ["listJiraIssueComments"] * 2
 
 
 async def test_schema_mismatch_is_reported_before_any_retrieval(

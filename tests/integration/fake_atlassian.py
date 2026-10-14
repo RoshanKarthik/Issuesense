@@ -1,5 +1,6 @@
 """A fake Atlassian Rovo MCP server holding the Project Atlas dataset, for connector tests."""
 
+import asyncio
 import json
 import re
 from datetime import UTC, date, datetime, timedelta
@@ -40,6 +41,8 @@ class FakeJiraMcp:
         self.changelogs: dict[str, list[dict[str, Any]]] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.failing_tools: set[str] = set()
+        self.flaky: dict[str, int] = {}  # tool -> how many more calls fail before it recovers
+        self.delays: dict[str, float] = {}  # tool -> seconds each call takes
         for n, issue in enumerate(issues, start=1):
             self._add(n, issue)
 
@@ -82,10 +85,15 @@ class FakeJiraMcp:
             for i, (old, new) in enumerate(zip(due_dates, due_dates[1:], strict=False))
         ]
 
-    def _record(self, tool: str, arguments: dict[str, Any]) -> None:
+    async def _record(self, tool: str, arguments: dict[str, Any]) -> None:
         self.calls.append((tool, arguments))
         if tool in self.failing_tools:
             raise RuntimeError(f"{tool} is down (internal host jira-db-7)")
+        if self.flaky.get(tool, 0) > 0:
+            self.flaky[tool] -= 1
+            raise RuntimeError(f"{tool} hiccup (internal host jira-db-7)")
+        if delay := self.delays.get(tool):
+            await asyncio.sleep(delay)
 
     def text_of(self, issue: dict[str, Any]) -> str:
         """Everything Jira's `text ~` searches: summary, description and comments."""
@@ -119,14 +127,14 @@ class FakeJiraMcp:
         fake = self
 
         @server.tool()
-        def searchJiraIssuesUsingJql(
+        async def searchJiraIssuesUsingJql(
             cloudId: str,
             jql: str,
             maxResults: int = 50,
             fields: list[str] | None = None,
             nextPageToken: str | None = None,
         ) -> dict[str, Any]:
-            fake._record(
+            await fake._record(
                 "searchJiraIssuesUsingJql",
                 {"cloudId": cloudId, "jql": jql, "maxResults": maxResults},
             )
@@ -137,36 +145,36 @@ class FakeJiraMcp:
         if rename_issue_arg:
 
             @server.tool(name="listJiraIssueComments")
-            def comments_renamed(cloudId: str, issueKey: str) -> dict[str, Any]:
+            async def comments_renamed(cloudId: str, issueKey: str) -> dict[str, Any]:
                 return {"comments": []}
 
         else:
 
             @server.tool()
-            def listJiraIssueComments(
+            async def listJiraIssueComments(
                 cloudId: str, issueIdOrKey: str, maxResults: int = 50
             ) -> dict[str, Any]:
-                fake._record(
+                await fake._record(
                     "listJiraIssueComments", {"cloudId": cloudId, "issueIdOrKey": issueIdOrKey}
                 )
                 return {"comments": fake.comments.get(issueIdOrKey, [])[:maxResults]}
 
         @server.tool()
-        def listJiraIssueChangelogs(cloudId: str, issueIdOrKey: str) -> dict[str, Any]:
-            fake._record(
+        async def listJiraIssueChangelogs(cloudId: str, issueIdOrKey: str) -> dict[str, Any]:
+            await fake._record(
                 "listJiraIssueChangelogs", {"cloudId": cloudId, "issueIdOrKey": issueIdOrKey}
             )
             return {"values": fake.changelogs.get(issueIdOrKey, [])}
 
         # Write tools the real server also offers: IssueSense must never call them.
         @server.tool()
-        def createJiraIssue(cloudId: str, projectKey: str, summary: str) -> dict[str, Any]:
-            fake._record("createJiraIssue", {"projectKey": projectKey})
+        async def createJiraIssue(cloudId: str, projectKey: str, summary: str) -> dict[str, Any]:
+            await fake._record("createJiraIssue", {"projectKey": projectKey})
             return {"key": "ATLAS-999"}
 
         @server.tool()
-        def deleteJiraIssue(cloudId: str, issueIdOrKey: str) -> dict[str, Any]:
-            fake._record("deleteJiraIssue", {"issueIdOrKey": issueIdOrKey})
+        async def deleteJiraIssue(cloudId: str, issueIdOrKey: str) -> dict[str, Any]:
+            await fake._record("deleteJiraIssue", {"issueIdOrKey": issueIdOrKey})
             return {"deleted": True}
 
         return server

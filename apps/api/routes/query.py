@@ -57,6 +57,7 @@ def get_pipeline() -> QueryPipeline:
         projects=settings.jira_projects,
         synthesizer=GroundedSynthesizer(provider),
         planner=planner_for(provider),
+        retrieval_timeout=settings.retrieval_timeout_seconds,
     )
 
 

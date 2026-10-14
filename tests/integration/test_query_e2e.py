@@ -180,3 +180,17 @@ def test_issue_keys_of_unconfigured_projects_are_not_treated_as_projects(
     body = _ask(client, "Is vendor ticket PV2-4471 still blocking card authorization?")
     assert body["answer"]["answerability"] == "PARTIALLY_ANSWERABLE"
     assert any("PV2-4471" in e["content"] for e in body["evidence"])
+
+
+def test_a_broken_history_tool_still_answers_and_says_what_is_missing(
+    client: TestClient, use_fake_jira: InstallFake
+) -> None:
+    fake = use_fake_jira()
+    fake.failing_tools.add("listJiraIssueChangelogs")
+    body = _ask(client)
+    answer = body["answer"]
+    assert answer["answerability"] == "PARTIALLY_ANSWERABLE"
+    assert body["verification"]["issues"] == []
+    assert answer["citations"] and body["evidence"]
+    assert "history" in answer["reasoning_summary"]
+    assert "jira-db-7" not in str(body)

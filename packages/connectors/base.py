@@ -104,9 +104,25 @@ class SourceRecord(BaseModel):
     permission_context: str  # the scope that granted access to this record
 
 
+class ToolFailure(BaseModel):
+    """One source call that failed while others succeeded. Safe to show: no raw error text."""
+
+    tool: str
+    resource: str  # the project (or other container) the call was for
+    item: str | None = None  # the item it was about, such as an issue key
+    reason: str
+
+
+class FetchResult(BaseModel):
+    records: list[SourceRecord] = Field(default_factory=list)
+    failures: list[ToolFailure] = Field(default_factory=list)
+
+
 class RetrievalResult(BaseModel):
     source: str
     records: list[SourceRecord] = Field(default_factory=list)
+    # Calls that failed; their records are missing, every other record is kept.
+    failures: list[ToolFailure] = Field(default_factory=list)
 
 
 def read_scope(source: str, resource: str) -> str:
@@ -147,7 +163,8 @@ class Connector(ABC):
         self, caller: AuthorizationContext, request: RetrievalRequest
     ) -> RetrievalResult:
         grants = self.authorize(caller, request)
-        records = await self._fetch(request, grants)
+        fetched = await self._fetch(request, grants)
+        records = fetched.records
         allowed = [record for record in records if record.resource in grants]
         if len(allowed) != len(records):
             # A connector bug or a server returning more than asked for: never pass it on.
@@ -156,8 +173,11 @@ class Connector(ABC):
                 len(records) - len(allowed),
                 self.source,
             )
-        return RetrievalResult(source=self.source, records=allowed)
+        return RetrievalResult(source=self.source, records=allowed, failures=fetched.failures)
 
     @abstractmethod
-    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
-        """Fetch records for the granted resources. Called only after `authorize` succeeds."""
+    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> FetchResult:
+        """Fetch records for the granted resources. Called only after `authorize` succeeds.
+
+        A call that fails is reported in `failures` while the other records are still returned;
+        raise `ConnectorError` only when nothing could be fetched at all."""

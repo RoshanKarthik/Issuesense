@@ -8,6 +8,7 @@ from packages.common.models import AuthorizationContext
 from packages.connectors.base import (
     AllowlistedToolClient,
     Connector,
+    FetchResult,
     RetrievalRequest,
     SourceRecord,
     ToolResult,
@@ -35,10 +36,10 @@ class FakeConnector(Connector):
         self.fetched: list[dict[str, str]] = []
         self.extra_resources = extra_resources or []
 
-    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
+    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> FetchResult:
         self.fetched.append(grants)
         resources = [*grants, *self.extra_resources]
-        return [
+        records = [
             SourceRecord(
                 source=self.source,
                 resource=resource,
@@ -48,6 +49,7 @@ class FakeConnector(Connector):
             )
             for resource in resources
         ]
+        return FetchResult(records=records)
 
 
 def _caller(*scopes: str) -> AuthorizationContext:

@@ -71,7 +71,7 @@ with Basic auth). The live run against the owner's Jira site is pending:
       ("this quarter")
 - [x] 2.3 Multiple tool calls per question, and follow-up retrieval when the assessment finds gaps
       (multi-hop), with a step and cost budget
-- [ ] 2.4 Timeouts, retries and partial results: one failed tool call never discards other evidence
+- [x] 2.4 Timeouts, retries and partial results: one failed tool call never discards other evidence
 - [ ] 2.5 A trace event for every node, plus LangSmith tracing (optional, off without a key)
 - [ ] 2.6 `GET /v1/query/{id}/trace` and live streaming of trace events (server-sent events)
 

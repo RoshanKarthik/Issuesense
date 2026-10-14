@@ -80,6 +80,7 @@ def jira_settings() -> Callable[..., Settings]:
             "jira_email": "owner@example.com",
             "jira_api_token": "test-token",
             "jira_projects": ["ATLAS"],
+            "mcp_retry_backoff_seconds": 0,
         }
         values.update(overrides)
         return Settings(_env_file=None, **values)

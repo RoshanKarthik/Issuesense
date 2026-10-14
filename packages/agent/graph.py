@@ -52,6 +52,7 @@ NOT_CONFIGURED_TEXT = "Jira is not configured on this server, so there is no ans
 UNAVAILABLE_TEXT = "Jira could not be reached, so there is no answer. Please try again later."
 UNVERIFIED_TEXT = "The answer could not be verified against the evidence, so it was withheld."
 RETRIEVAL_ERROR = "Jira could not be reached."
+RETRIEVAL_TIMEOUT = "Jira did not answer in time."
 
 FOLLOW_UP = "follow-up"
 GAP_DEPTH = 5  # how many of a sub-question's best items decide whether it is covered
@@ -72,6 +73,7 @@ class RunContext:
     budget: Budget = field(default_factory=Budget)
     today: Callable[[], date] = field(default=lambda: utc_now().date())
     retrieval_limit: int = 20
+    retrieval_timeout: float = 60.0  # seconds for one retrieval, details included
 
 
 def mentioned_projects(question: str, configured: list[str]) -> list[str]:
@@ -138,9 +140,18 @@ async def plan(state: GraphState, runtime: Runtime[RunContext]) -> Update:
     }
 
 
-async def _run_task(
-    task: RetrievalTask, state: GraphState, ctx: RunContext
-) -> tuple[list[Evidence], str | None]:
+class _Outcome:
+    def __init__(
+        self, evidence: list[Evidence], error: str | None = None, warnings: list[str] | None = None
+    ) -> None:
+        self.evidence = evidence
+        self.error = error
+        self.warnings = warnings or []
+
+
+async def _run_task(task: RetrievalTask, state: GraphState, ctx: RunContext) -> _Outcome:
+    """One retrieval, bounded by the retrieval timeout. It never raises a source failure: a failed
+    or slow retrieval comes back as an error, so the other retrievals' evidence is kept."""
     assert ctx.jira is not None
     request = RetrievalRequest(
         query=task.query,
@@ -151,15 +162,23 @@ async def _run_task(
         keys=task.keys,
     )
     try:
-        jira = await ctx.jira.get()
-        retrieved = await jira.retrieve(state.caller, request)
+        async with asyncio.timeout(ctx.retrieval_timeout):
+            jira = await ctx.jira.get()
+            retrieved = await jira.retrieve(state.caller, request)
+    except TimeoutError:
+        logger.error("Jira retrieval %s/%s timed out", task.sub_question, task.kind)
+        return _Outcome([], RETRIEVAL_TIMEOUT)
     except ConnectorError:
         logger.exception("Jira retrieval %s/%s failed", task.sub_question, task.kind)
-        return [], RETRIEVAL_ERROR
+        return _Outcome([], RETRIEVAL_ERROR)
     evidence = normalize_jira_records(retrieved.records, ctx.site_url)
     if task.updated_since and task.updated_until:
         evidence = within_period(evidence, task.updated_since, task.updated_until)
-    return evidence, None
+    warnings = [
+        f"{failure.item}: {failure.reason}" if failure.item else failure.reason
+        for failure in retrieved.failures
+    ]
+    return _Outcome(evidence, warnings=warnings)
 
 
 async def retrieve(state: GraphState, runtime: Runtime[RunContext]) -> Update:
@@ -172,20 +191,21 @@ async def retrieve(state: GraphState, runtime: Runtime[RunContext]) -> Update:
             f"Skipped {len(dropped)} search(es): the limit of {ctx.budget.max_retrievals} "
             "searches per question was reached."
         )
-    results = await asyncio.gather(*(_run_task(task, state, ctx) for task in tasks))
+    outcomes = await asyncio.gather(*(_run_task(task, state, ctx) for task in tasks))
 
     pool = state.evidence
     records = list(state.retrievals)
     current_round = state.rounds + 1
-    for task, (found, error) in zip(tasks, results, strict=True):
-        pool, added = merge_evidence(pool, found, task.sub_question)
+    for task, outcome in zip(tasks, outcomes, strict=True):
+        pool, added = merge_evidence(pool, outcome.evidence, task.sub_question)
         records.append(
             RetrievalRecord(
                 task=task,
                 round=current_round,
-                items=len(found),
+                items=len(outcome.evidence),
                 new_evidence=[item.evidence_id for item in added],
-                error=error,
+                error=outcome.error,
+                warnings=outcome.warnings,
             )
         )
     return {
@@ -256,7 +276,7 @@ def find_gaps(state: GraphState) -> list[RetrievalTask]:
 async def assess(state: GraphState, runtime: Runtime[RunContext]) -> Update:
     assert state.plan is not None
     budget = runtime.context.budget
-    if not state.evidence and state.failed_retrievals:
+    if state.retrievals and len(state.failed_retrievals) == len(state.retrievals):
         return {"answer": plain_answer(UNAVAILABLE_TEXT, Answerability.TOOL_FAILURE)}
 
     gaps = find_gaps(state)
@@ -312,6 +332,21 @@ async def verify(state: GraphState, runtime: Runtime[RunContext]) -> Update:
     }
 
 
+def _failure_note(state: GraphState) -> str | None:
+    failed = state.failed_retrievals
+    incomplete = [r for r in state.retrievals if r.warnings and not r.error]
+    if not failed and not incomplete:
+        return None
+    parts = []
+    if failed:
+        parts.append(f"{len(failed)} of {len(state.retrievals)} Jira searches failed")
+    if incomplete:
+        missing = sorted({w for r in incomplete for w in r.warnings})
+        shown = "; ".join(missing[:3]) + ("; ..." if len(missing) > 3 else "")
+        parts.append(f"some details are missing ({shown})")
+    return f"The evidence may be incomplete: {' and '.join(parts)}."
+
+
 async def finish(state: GraphState, runtime: Runtime[RunContext]) -> Update:
     if state.answer is not None:
         return {}
@@ -322,6 +357,15 @@ async def finish(state: GraphState, runtime: Runtime[RunContext]) -> Update:
         notes.append(f"Skipped Jira project(s) you cannot read: {', '.join(state.skipped)}.")
         if answer.answerability is Answerability.SUFFICIENT:
             answer.answerability = Answerability.PARTIALLY_ANSWERABLE
+    if failure_note := _failure_note(state):
+        notes.append(failure_note)
+        if answer.answerability is Answerability.SUFFICIENT:
+            answer.answerability = Answerability.PARTIALLY_ANSWERABLE
+        elif answer.answerability is Answerability.INSUFFICIENT_EVIDENCE and (
+            state.failed_retrievals
+        ):
+            # The evidence that would answer it may be in what failed: say so, not "none exists".
+            answer.answerability = Answerability.TOOL_FAILURE
     if notes:
         answer.reasoning_summary = " ".join([answer.reasoning_summary or "", *notes]).strip()
     return {"answer": answer}

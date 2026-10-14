@@ -1,11 +1,19 @@
 """In-memory fakes for testing the query graph without MCP or an LLM."""
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 from packages.agent.llm import LlmRequest, LlmResponse
-from packages.connectors.base import Connector, RetrievalRequest, SourceRecord
+from packages.common.errors import ConnectorError
+from packages.connectors.base import (
+    Connector,
+    FetchResult,
+    RetrievalRequest,
+    SourceRecord,
+    ToolFailure,
+)
 
 SITE = "https://atlas-demo.atlassian.net"
 
@@ -28,9 +36,19 @@ class StaticJiraConnector(Connector):
 
     source = "jira"
 
-    def __init__(self, issues: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        issues: list[dict[str, Any]],
+        fail_calls: set[int] | None = None,
+        slow_calls: set[int] | None = None,
+        failures: list[ToolFailure] | None = None,
+    ) -> None:
         self.issues = issues
         self.requests: list[RetrievalRequest] = []
+        self.calls = 0
+        self.fail_calls = fail_calls or set()  # 1-based numbers of the calls that fail
+        self.slow_calls = slow_calls or set()  # ...and of those that hang for 5 seconds
+        self.failures = failures or []  # partial failures reported with every result
 
     def _matches(self, item: dict[str, Any], request: RetrievalRequest) -> bool:
         if request.keys and item["key"] not in request.keys:
@@ -38,9 +56,15 @@ class StaticJiraConnector(Connector):
         text = f"{item['fields']['summary']} {item['fields']['description']}".lower()
         return not request.terms or any(term in text for term in request.terms)
 
-    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
+    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> FetchResult:
         self.requests.append(request)
-        return [
+        self.calls += 1
+        call = self.calls
+        if call in self.slow_calls:
+            await asyncio.sleep(5)
+        if call in self.fail_calls:
+            raise ConnectorError("Jira returned an error.", {"tool": "searchJiraIssuesUsingJql"})
+        records = [
             SourceRecord(
                 source="jira",
                 resource=project,
@@ -52,6 +76,7 @@ class StaticJiraConnector(Connector):
             for item in self.issues
             if str(item["key"]).startswith(f"{project}-") and self._matches(item, request)
         ]
+        return FetchResult(records=records, failures=list(self.failures))
 
 
 class Opener:

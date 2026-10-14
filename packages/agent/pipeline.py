@@ -46,6 +46,7 @@ class QueryPipeline:
         today: Callable[[], date] | None = None,
         budget: Budget | None = None,
         retrieval_limit: int = 20,
+        retrieval_timeout: float = 60.0,
     ) -> None:
         self._open_jira = open_jira
         self._site_url = site_url or ""
@@ -55,6 +56,7 @@ class QueryPipeline:
         self._today = today or (lambda: utc_now().date())
         self._budget = budget or Budget()
         self._limit = retrieval_limit
+        self._timeout = retrieval_timeout
         self._graph = build_graph()
 
     async def answer(self, question: str, caller: AuthorizationContext) -> PipelineResult:
@@ -68,6 +70,7 @@ class QueryPipeline:
             today=self._today,
             budget=self._budget,
             retrieval_limit=self._limit,
+            retrieval_timeout=self._timeout,
         )
         try:
             output = await self._graph.ainvoke(

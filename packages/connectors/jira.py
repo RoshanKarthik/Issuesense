@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from packages.common.errors import ConnectorError
 from packages.common.models import AuthorizationContext
@@ -26,11 +26,14 @@ from packages.common.settings import Settings
 from packages.connectors.base import (
     AllowlistedToolClient,
     Connector,
+    FetchResult,
     RetrievalRequest,
     SourceRecord,
+    ToolFailure,
     read_scope,
 )
 from packages.connectors.mcp_session import basic_auth_header, connect
+from packages.connectors.resilience import RetryPolicy, call_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,12 @@ CHANGELOG_TOOL = "listJiraIssueChangelogs"
 # refused before any call leaves the process.
 JIRA_READ_TOOLS = frozenset({SEARCH_TOOL, COMMENTS_TOOL, CHANGELOG_TOOL})
 
-Details = tuple[list[dict[str, Any]], list[dict[str, Any]]]
+
+class Details(BaseModel):
+    comments: list[dict[str, Any]] = Field(default_factory=list)
+    changelog: list[dict[str, Any]] = Field(default_factory=list)
+    failed_tools: list[str] = Field(default_factory=list)
+
 
 SEARCH_FIELDS = [
     "summary",
@@ -111,8 +119,10 @@ class JiraConnector(Connector):
         *,
         detail_limit: int = 25,
         concurrency: int = 4,
+        retry: RetryPolicy | None = None,
     ) -> None:
         self._tools = tools
+        self._retry = retry or RetryPolicy()
         self._cloud_id = cloud_id
         self._detail_limit = detail_limit
         self._concurrency = asyncio.Semaphore(concurrency)
@@ -157,69 +167,121 @@ class JiraConnector(Connector):
         return problems
 
     async def _call(self, tool: str, arguments: dict[str, Any]) -> Any:
-        async with self._concurrency:
-            result = await self._tools.call_tool(tool, arguments)
-        if result.is_error:
-            # The error text may echo internals; log it, return only which tool failed.
-            logger.error("Jira MCP tool %s failed: %s", tool, str(result.content)[:500])
-            raise ConnectorError("Jira returned an error.", {"server": SERVER_NAME, "tool": tool})
-        return result.content
+        async def attempt() -> Any:
+            async with self._concurrency:
+                result = await self._tools.call_tool(tool, arguments)
+            if result.is_error:
+                # The error text may echo internals; log it, return only which tool failed.
+                logger.error("Jira MCP tool %s failed: %s", tool, str(result.content)[:500])
+                raise ConnectorError(
+                    "Jira returned an error.", {"server": SERVER_NAME, "tool": tool}
+                )
+            return result.content
+
+        return await call_with_retry(attempt, self._retry, f"Jira {tool}")
 
     async def _details(self, key: str) -> Details:
+        """Comments and history of one issue. A failed half is reported, not fatal; only complete
+        results are cached, so a later retrieval in the run tries a failed half again."""
         task = self._detail_cache.get(key)
-        if task is None or (task.done() and (task.cancelled() or task.exception() is not None)):
+        if task is None:
             task = asyncio.ensure_future(self._fetch_details(key))
             self._detail_cache[key] = task
-        return await asyncio.shield(task)
+        try:
+            details = await asyncio.shield(task)
+        except BaseException:
+            self._detail_cache.pop(key, None)
+            raise
+        if details.failed_tools:
+            self._detail_cache.pop(key, None)
+        return details
 
     async def _fetch_details(self, key: str) -> Details:
-        comments, changelog = await asyncio.gather(
+        outcomes: tuple[Any, ...] = await asyncio.gather(
             self._call(COMMENTS_TOOL, self._comments_args(key)),
             self._call(CHANGELOG_TOOL, self._changelog_args(key)),
+            return_exceptions=True,
         )
-        return (
-            _items(comments, "comments", "values"),
-            _items(changelog, "values", "histories", "changelogs"),
-        )
+        details = Details()
+        for tool, outcome in zip((COMMENTS_TOOL, CHANGELOG_TOOL), outcomes, strict=True):
+            if isinstance(outcome, ConnectorError):
+                details.failed_tools.append(tool)
+            elif isinstance(outcome, BaseException):
+                raise outcome  # a bug or a cancellation, not a source failure
+            elif tool == COMMENTS_TOOL:
+                details.comments = _items(outcome, "comments", "values")
+            else:
+                details.changelog = _items(outcome, "values", "histories", "changelogs")
+        return details
 
-    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
-        records: list[SourceRecord] = []
-        for project in grants:
-            jql = search_jql(project, request)
-            if jql is None:
-                continue
-            found = _items(
-                await self._call(SEARCH_TOOL, self._search_args(project, request.limit, jql)),
-                "issues",
-            )
-            issues = [
-                issue for issue in found if str(issue.get("key", "")).startswith(f"{project}-")
-            ]
-            if len(issues) != len(found):
-                logger.error(
-                    "Jira returned %d issues outside %s", len(found) - len(issues), project
-                )
-            detailed = issues[: self._detail_limit]
-            details = await asyncio.gather(
-                *(self._details(str(issue["key"])) for issue in detailed)
-            )
-            for index, issue in enumerate(issues):
-                comments, changelog = details[index] if index < len(details) else ([], [])
-                records.append(
-                    SourceRecord(
-                        source=self.source,
+    async def _search(
+        self, project: str, scope: str, request: RetrievalRequest, jql: str
+    ) -> FetchResult:
+        found = _items(
+            await self._call(SEARCH_TOOL, self._search_args(project, request.limit, jql)),
+            "issues",
+        )
+        issues = [issue for issue in found if str(issue.get("key", "")).startswith(f"{project}-")]
+        if len(issues) != len(found):
+            logger.error("Jira returned %d issues outside %s", len(found) - len(issues), project)
+        detailed = issues[: self._detail_limit]
+        details = await asyncio.gather(*(self._details(str(issue["key"])) for issue in detailed))
+        result = FetchResult()
+        for index, issue in enumerate(issues):
+            fetched = details[index] if index < len(details) else None
+            for tool in fetched.failed_tools if fetched else []:
+                result.failures.append(
+                    ToolFailure(
+                        tool=tool,
                         resource=project,
-                        tool=SEARCH_TOOL,
-                        payload={
-                            "issue": issue,
-                            "comments": comments,
-                            "changelog": changelog,
-                            "details_fetched": index < len(details),
-                        },
-                        permission_context=grants[project],
+                        item=str(issue["key"]),
+                        reason="Jira did not return this issue's "
+                        + ("comments." if tool == COMMENTS_TOOL else "history."),
                     )
                 )
-        return records
+            result.records.append(
+                SourceRecord(
+                    source=self.source,
+                    resource=project,
+                    tool=SEARCH_TOOL,
+                    payload={
+                        "issue": issue,
+                        "comments": fetched.comments if fetched else [],
+                        "changelog": fetched.changelog if fetched else [],
+                        "details_fetched": fetched is not None and not fetched.failed_tools,
+                    },
+                    permission_context=scope,
+                )
+            )
+        return result
+
+    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> FetchResult:
+        searches = [
+            (project, jql)
+            for project in grants
+            if (jql := search_jql(project, request)) is not None
+        ]
+        outcomes = await asyncio.gather(
+            *(self._search(project, grants[project], request, jql) for project, jql in searches),
+            return_exceptions=True,
+        )
+        result = FetchResult()
+        for (project, _), outcome in zip(searches, outcomes, strict=True):
+            if isinstance(outcome, ConnectorError):
+                result.failures.append(
+                    ToolFailure(
+                        tool=SEARCH_TOOL, resource=project, reason="Jira search did not answer."
+                    )
+                )
+            elif isinstance(outcome, BaseException):
+                raise outcome
+            else:
+                result.records += outcome.records
+                result.failures += outcome.failures
+        if searches and len(result.failures) >= len(searches) and not result.records:
+            if all(failure.tool == SEARCH_TOOL for failure in result.failures):
+                raise ConnectorError("Jira searches failed.", {"server": SERVER_NAME})
+        return result
 
 
 @asynccontextmanager
@@ -237,7 +299,13 @@ async def open_jira_connector(
         target or settings.jira_mcp_url, server=SERVER_NAME, headers=headers
     ) as session:
         connector = JiraConnector(
-            AllowlistedToolClient(session, SERVER_NAME, JIRA_READ_TOOLS), settings.jira_base_url
+            AllowlistedToolClient(session, SERVER_NAME, JIRA_READ_TOOLS),
+            settings.jira_base_url,
+            retry=RetryPolicy(
+                attempts=settings.mcp_call_attempts,
+                timeout_seconds=settings.mcp_call_timeout_seconds,
+                backoff_seconds=settings.mcp_retry_backoff_seconds,
+            ),
         )
         problems = await connector.verify()
         if problems:

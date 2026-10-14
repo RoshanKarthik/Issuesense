@@ -10,8 +10,8 @@ from packages.common.models import AuthorizationContext
 from packages.connectors.base import (
     AllowlistedToolClient,
     Connector,
+    FetchResult,
     RetrievalRequest,
-    SourceRecord,
     ToolNotAllowedError,
     ToolResult,
 )
@@ -32,8 +32,8 @@ class _RecordingClient:
 class _Jira(Connector):
     source = "jira"
 
-    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> list[SourceRecord]:
-        return []
+    async def _fetch(self, request: RetrievalRequest, grants: dict[str, str]) -> FetchResult:
+        return FetchResult()
 
 
 @pytest.mark.parametrize(
