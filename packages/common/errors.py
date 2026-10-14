@@ -28,3 +28,10 @@ class ConnectorError(IssueSenseError):
 
 class GuardrailError(IssueSenseError):
     """Raised when input or output safety checks are violated."""
+
+
+class NotFoundError(IssueSenseError):
+    """Raised when a requested resource does not exist or belongs to someone else.
+
+    The two cases share one error, so a caller cannot learn that another user's resource exists.
+    """

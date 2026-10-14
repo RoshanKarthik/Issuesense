@@ -8,11 +8,13 @@ reasoning: the response holds the evidence, and private reasoning is not exposed
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Literal
 
-from packages.common.models import TraceEvent, utc_now
+from packages.common.errors import NotFoundError
+from packages.common.models import AuthorizationContext, TraceEvent, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +89,32 @@ class TraceRecorder:
         finally:
             if queue in self._subscribers:
                 self._subscribers.remove(queue)
+
+
+class TraceStore:
+    """The traces of recent queries, in memory and bounded: the oldest finished traces are dropped
+    first. A trace is readable only by the user who asked the question.
+
+    Traces live in this process only, so they are lost on restart and not shared between
+    instances; durable storage arrives with the database (Phase 4).
+    """
+
+    def __init__(self, capacity: int = 500) -> None:
+        self._capacity = capacity
+        self._traces: OrderedDict[str, TraceRecorder] = OrderedDict()
+
+    def __len__(self) -> int:
+        return len(self._traces)
+
+    def add(self, trace: TraceRecorder) -> None:
+        self._traces[trace.query_id] = trace
+        self._traces.move_to_end(trace.query_id)
+        while len(self._traces) > self._capacity:
+            finished = next((qid for qid, t in self._traces.items() if t.status != "running"), None)
+            self._traces.pop(finished if finished is not None else next(iter(self._traces)))
+
+    def get(self, query_id: str, caller: AuthorizationContext) -> TraceRecorder:
+        trace = self._traces.get(query_id)
+        if trace is None or trace.user_id != caller.user_id:
+            raise NotFoundError("There is no trace with this ID.", {"query_id": query_id})
+        return trace

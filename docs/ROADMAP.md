@@ -73,7 +73,12 @@ with Basic auth). The live run against the owner's Jira site is pending:
       (multi-hop), with a step and cost budget
 - [x] 2.4 Timeouts, retries and partial results: one failed tool call never discards other evidence
 - [x] 2.5 A trace event for every node, plus LangSmith tracing (optional, off without a key)
-- [ ] 2.6 `GET /v1/query/{id}/trace` and live streaming of trace events (server-sent events)
+- [x] 2.6 `GET /v1/query/{id}/trace` and live streaming of trace events (server-sent events)
+
+**Status:** done against the fake Atlassian MCP server, without an LLM (rule-based planning, quoted
+answers). The NVIDIA NIM adapter is tested against a mocked HTTP API only; a live run needs the
+owner's `LLM_MODEL` and `LLM_API_KEY`, and LangSmith needs `LANGSMITH_API_KEY`. Traces are kept in
+memory (latest 500 queries, one process) until the database arrives in Phase 4.
 
 ## Phase 3: More live sources and cross-source reasoning
 

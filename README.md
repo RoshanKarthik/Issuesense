@@ -9,10 +9,32 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan and progress.
 
 Current, authorized source evidence is truth for an answer. Memory is context, never an automatic override. Claims must map to normalized evidence and citations must be verified before output.
 
-## What works today (Phase 1)
+## What works today (Phases 1 and 2)
 
 Ask a question over HTTP and IssueSense answers from a Jira project, read through Atlassian's
-official MCP server:
+official MCP server. Each question runs through a typed LangGraph workflow:
+
+```text
+authorize -> plan -> retrieve <-> assess -> synthesize <-> verify -> finish
+```
+
+- **Planning**: the question is rewritten with an explicit period ("this quarter" becomes
+  2026-10-01 to 2026-12-31) and split into sub-questions (what changed, moved deadlines, risks,
+  blockers, goals). With an LLM configured (NVIDIA NIM) the model plans; its plan is validated and
+  rule-based planning takes over if it is unusable. Dates always come from the calendar.
+- **Multi-hop retrieval**: one Jira search per sub-question, run concurrently, built from validated
+  words, dates and issue keys (never user text). When a sub-question is not covered, it is searched
+  again more broadly; issues the evidence refers to (a parent epic, "blocked by ATLAS-7") are
+  fetched by key. A budget bounds follow-up rounds, searches and LLM tokens, and the answer says
+  when it was reached.
+- **Resilience**: every MCP call has a timeout and a retry; a failed search or a missing comment
+  thread is reported while all other evidence is kept.
+- **Tracing**: every step emits a trace event (plan, searches, evidence found, verification,
+  timings; never evidence text). Read it with `GET /v1/query/{id}/trace`, or stream the whole run
+  live with `POST /v1/query/stream` (server-sent events). LangSmith tracing turns on when
+  `LANGSMITH_API_KEY` is set.
+
+Carried over from Phase 1:
 
 - **Input guardrails** block prompt injection, hidden characters and write requests
   (IssueSense is read-only), and answer greetings without retrieval.
@@ -21,8 +43,8 @@ official MCP server:
 - **Evidence**: every issue, comment and history entry becomes citable evidence with a location
   (`ATLAS-3#comment-20030`) and a link back to Jira. Retrieved text that tries to instruct the
   assistant is flagged and withheld.
-- **Answers**: with no LLM configured, the most relevant evidence is quoted verbatim; with one
-  (not yet chosen), it writes an answer as claims that each cite evidence.
+- **Answers**: with no LLM configured, the most relevant evidence for each sub-question is quoted
+  verbatim; with one, it writes an answer as claims that each cite evidence.
 - **Verification**: every claim's citations, quotes, numbers and dates are checked against the
   evidence before anything is returned. Unverifiable answers are replaced or withheld.
 - Every outcome is explicit: `PARTIALLY_ANSWERABLE`, `SUFFICIENT`, `INSUFFICIENT_EVIDENCE`,
@@ -77,6 +99,25 @@ issuesense-api
 curl -H "Authorization: Bearer $ISSUESENSE_KEY" -H "Content-Type: application/json" \
   -d '{"question": "Which deadlines slipped in Project Atlas, and why?"}' http://127.0.0.1:8000/v1/query
 ```
+
+The response's `query_id` names its trace: `GET /v1/query/{query_id}/trace`. To watch a question
+being answered step by step, stream it (`-N` prints events as they arrive):
+
+```bash
+curl -N -H "Authorization: Bearer $ISSUESENSE_KEY" -H "Content-Type: application/json" \
+  -d '{"question": "What changed in Project Atlas this quarter, and what are the risks?"}' \
+  http://127.0.0.1:8000/v1/query/stream
+```
+
+The stream sends `query` (the ID), one `trace` event per step, then `answer`. Traces are kept in
+memory for the latest 500 queries, readable only by the user who asked.
+
+### 4. Optional: an LLM and LangSmith
+
+Without an LLM, planning is rule-based and answers quote the evidence. To use NVIDIA NIM, create an
+API key at build.nvidia.com and set in `.env`: `LLM_PROVIDER=nvidia_nim`, `LLM_MODEL` (a model id
+from the catalog) and `LLM_API_KEY`. For LangSmith tracing, set `LANGSMITH_API_KEY` (and optionally
+`LANGSMITH_PROJECT`); LangSmith then stores each run, including retrieved evidence text.
 
 ## Checks
 

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from apps.api.errors import install_error_handlers
-from apps.api.routes import query
+from apps.api.routes import query, trace
 from packages.common import __version__
 from packages.common.settings import settings
 
@@ -16,6 +16,7 @@ app = FastAPI(
 )
 install_error_handlers(app)
 app.include_router(query.router)
+app.include_router(trace.router)
 
 
 class HealthResponse(BaseModel):

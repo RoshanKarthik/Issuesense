@@ -7,13 +7,14 @@ from fastapi.testclient import TestClient
 
 from apps.api.auth import ApiKeyStore, get_api_key_store, hash_api_key
 from apps.api.main import app
-from apps.api.routes.query import get_pipeline
+from apps.api.routes.query import get_pipeline, get_trace_store
 from packages.agent.llm import LlmProvider
 from packages.agent.pipeline import QueryPipeline
 from packages.agent.synthesis import GroundedSynthesizer
 from packages.common.settings import ApiKeyEntry, Settings
 from packages.connectors.jira import open_jira_connector
 from packages.evaluation.atlas_dataset import ATLAS_ISSUES
+from packages.observability.trace import TraceStore
 from tests.integration.fake_atlassian import SITE, TODAY, FakeJiraMcp
 
 # A test-only key: it exists nowhere but in this process.
@@ -34,6 +35,8 @@ def _isolated_app() -> Iterator[None]:
     fake MCP server explicitly.
     """
     app.dependency_overrides[get_api_key_store] = lambda: ApiKeyStore([TEST_KEY_ENTRY])
+    traces = TraceStore()  # a fresh store per test
+    app.dependency_overrides[get_trace_store] = lambda: traces
     app.dependency_overrides[get_pipeline] = lambda: QueryPipeline(
         open_jira=None, site_url=None, projects=[], synthesizer=GroundedSynthesizer(None)
     )

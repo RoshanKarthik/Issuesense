@@ -16,6 +16,7 @@ from packages.common.errors import (
     ConnectorError,
     GuardrailError,
     IssueSenseError,
+    NotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ _DOMAIN_ERRORS: list[tuple[type[IssueSenseError], HTTPStatus, str]] = [
     (AuthenticationError, HTTPStatus.UNAUTHORIZED, "UNAUTHENTICATED"),
     (AuthorizationError, HTTPStatus.FORBIDDEN, "FORBIDDEN"),
     (GuardrailError, HTTPStatus.BAD_REQUEST, "GUARDRAIL_VIOLATION"),
+    (NotFoundError, HTTPStatus.NOT_FOUND, "NOT_FOUND"),
     (ConnectorError, HTTPStatus.BAD_GATEWAY, "CONNECTOR_FAILURE"),
 ]
 

@@ -1,6 +1,7 @@
 """HTTP request/response contracts for the public API."""
 
-from typing import Annotated, Any, Self
+from datetime import datetime
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -11,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from packages.common.models import Answer, Evidence
+from packages.common.models import Answer, Evidence, TraceEvent
 from packages.evidence.citations import VerificationReport
 from packages.guardrails.input import Triage
 
@@ -83,3 +84,13 @@ class ErrorResponse(BaseModel):
     """The single error shape returned by every endpoint."""
 
     error: ErrorBody
+
+
+class QueryTrace(BaseModel):
+    """Every step IssueSense took for one query, in order."""
+
+    query_id: str
+    status: Literal["running", "completed", "failed", "cancelled"]
+    started_at: datetime
+    finished_at: datetime | None = None
+    events: list[TraceEvent]
