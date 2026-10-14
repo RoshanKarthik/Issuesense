@@ -244,3 +244,19 @@ def assess_question(text: str) -> InputAssessment:
     normalized, findings = normalize(text)
     findings.extend(_rule_findings(normalized))
     return InputAssessment(normalized_text=normalized, findings=findings, triage=triage(normalized))
+
+
+def scan_untrusted_text(text: str) -> list[Finding]:
+    """Injection signals in retrieved content (tickets, pages, emails).
+
+    Only the injection and hidden-character rules apply: work items legitimately say "create a
+    ticket" or contain encoded blobs, so tool-intent and encoded-payload rules would flag normal
+    content. Findings mark the content as suspect; it is still data, never instructions.
+    """
+    normalized, findings = normalize(text)
+    findings.extend(
+        Finding(rule_id=rule.rule_id, category=rule.category, severity=Severity.BLOCK)
+        for rule in _INJECTION_RULES
+        if rule.pattern.search(normalized)
+    )
+    return [finding for finding in findings if finding.severity is Severity.BLOCK]

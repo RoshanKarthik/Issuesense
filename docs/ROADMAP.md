@@ -51,7 +51,7 @@ One question → Jira → evidence → cited answer, with no agent loop yet.
       Atlassian's official Rovo MCP server with API-token auth. Only allowlisted read-only tools are
       callable; tests run against a fake in-memory MCP server. *Live check pending:
       `issuesense-check-jira` once the owner's site is set up.*
-- [ ] 1.6 Normalize Jira issues, comments and changelogs into `Evidence` with URLs and locations
+- [x] 1.6 Normalize Jira issues, comments and changelogs into `Evidence` with URLs and locations
 - [ ] 1.7 LLM provider interface and grounded synthesis; without a configured LLM, a deterministic
       answer that lists retrieved evidence and invents nothing
 - [ ] 1.8 Citation verification: every cited ID exists, its location is valid, and it supports the claim
