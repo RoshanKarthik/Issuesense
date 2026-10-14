@@ -1,7 +1,7 @@
 # ADR 0001: Evidence-First Design and Grounding
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 In engineering intelligence platforms, LLM hallucinations can lead to incorrect technical decisions. To prevent this, IssueSense must ensure that every material claim in a response is directly supported by a verifiable piece of evidence from an authorized source.

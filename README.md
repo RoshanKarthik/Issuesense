@@ -9,5 +9,31 @@ Current, authorized source evidence is truth for an answer. Memory is context, n
 
 ## Local setup
 
-Copy `.env.example` to `.env`, configure only the credentials needed for the active phase, create a Python 3.12 environment, then install the relevant optional dependency group. No external connector is implemented by this scaffold.
+Requires Python 3.12. No external connector is implemented yet, so no credentials are needed.
 
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+cp .env.example .env             # only the ISSUESENSE_* runtime settings are read so far
+```
+
+Run the API (serves on `ISSUESENSE_API_HOST:ISSUESENSE_API_PORT`, default `127.0.0.1:8000`):
+
+```bash
+issuesense-api
+curl http://127.0.0.1:8000/health
+```
+
+## Checks
+
+CI runs the same four commands on every push and pull request:
+
+```bash
+ruff check .
+ruff format --check .
+mypy
+pytest
+```
+
+Later phases add optional dependency groups: `.[agent]`, `.[persistence]`, `.[observability]`.

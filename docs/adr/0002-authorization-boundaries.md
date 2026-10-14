@@ -1,7 +1,7 @@
 # ADR 0002: Authorization Boundaries and Access Control
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 IssueSense interacts with sensitive organizational data (GitHub, Notion, etc.). It is not sufficient to rely on the global credentials of the service account; the system must ensure that the specific user requesting information has the right to see it.

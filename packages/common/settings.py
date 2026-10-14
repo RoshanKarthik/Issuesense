@@ -4,17 +4,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Project-wide configuration."""
-    ENVIRONMENT: Literal["dev", "test", "prod"] = "dev"
-    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    """Project-wide configuration, read from `ISSUESENSE_*` environment variables and `.env`."""
 
-    # Placeholder for global API configurations
-    # These will be expanded as connectors are added
+    env: Literal["development", "test", "production"] = "development"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+
+    # Connector and provider settings are added with the phase that introduces them.
 
     model_config = SettingsConfigDict(
+        env_prefix="ISSUESENSE_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
+
 
 settings = Settings()
