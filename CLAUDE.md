@@ -55,7 +55,7 @@ apps/api             FastAPI application and HTTP schemas
 apps/web             TypeScript demo client; do not build until Phase 7
 packages/common      Shared models, settings, errors, authorization context
 packages/agent       Planning, orchestration and typed graph state
-packages/connectors  Source adapters (Jira, Notion, Gmail) and authorization boundary
+packages/connectors  MCP client connectors (Jira, Notion, Gmail) and authorization boundary
 packages/retrieval   Retrieval planning and source querying
 packages/evidence    Evidence normalization, ranking, citations, verification
 packages/guardrails  Input and output safety checks
@@ -88,6 +88,7 @@ Raw connector payloads must never flow straight to synthesis. Normalize them int
 }
 ```
 
+- Live sources are reached only through MCP servers, with IssueSense as the MCP client. Each server has an explicit allowlist of read-only tools; any other tool is refused before the call is made.
 - Every connector invocation must receive an authorization context and perform an application-level access check before retrieval.
 - Never assume connector credentials mean the requester is authorized.
 - Source authority is contextual: Jira for delivery status, Notion for intended plans and architecture, Gmail for human decisions and status updates.

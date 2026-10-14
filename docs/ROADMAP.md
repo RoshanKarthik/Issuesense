@@ -41,13 +41,15 @@ One question → Jira → evidence → cited answer, with no agent loop yet.
 - [x] 1.1 Typed `POST /v1/query` request/response and one error shape for every endpoint
 - [ ] 1.2 Input checks: validation, prompt-injection and tool-intent detection, cheap triage
       (reject or short-circuit questions that need no retrieval)
-- [ ] 1.3 Caller authentication (API keys mapped to a user and scopes) and the connector interface,
-      with an access check before every retrieval
+- [ ] 1.3 Caller authentication (API keys mapped to a user and scopes) and the MCP connector
+      interface, with an access check before every retrieval and an allowlist of read-only tools per
+      MCP server
 - [ ] 1.4 Demo workspace: a seed script that fills a test Jira project with a realistic quarter of
       "Project Atlas" work (goals, slipped deadlines, blockers, status changes). Used by the demo and
       the evals; never your personal data
-- [ ] 1.5 Real Jira connector (read-only), via Atlassian's MCP server or the REST API; tests mock the
-      network boundary
+- [ ] 1.5 Real Jira connector over MCP: IssueSense is the MCP client (official `mcp` SDK) and talks to
+      Atlassian's official Rovo MCP server with API-token auth. Only allowlisted read-only tools are
+      callable; tests run against a fake in-memory MCP server
 - [ ] 1.6 Normalize Jira issues, comments and changelogs into `Evidence` with URLs and locations
 - [ ] 1.7 LLM provider interface and grounded synthesis; without a configured LLM, a deterministic
       answer that lists retrieved evidence and invents nothing
@@ -70,8 +72,12 @@ unauthorized, empty-result and connector-failure cases each return an explicit, 
 
 ## Phase 3: More live sources and cross-source reasoning
 
-- [ ] 3.1 Notion connector: project goals, specs, decision docs (MCP or API)
-- [ ] 3.2 Gmail connector: status updates and decisions from a dedicated demo mailbox (read-only)
+- [ ] 3.1 Notion connector over MCP: project goals, specs, decision docs. Candidates: Notion's
+      official `@notionhq/notion-mcp-server` with an integration token, run as a sidecar container
+      (Notion's hosted MCP server is OAuth-only and built for interactive chat); decided at this step
+- [ ] 3.2 Gmail connector over MCP: status updates and decisions from a dedicated demo mailbox.
+      Candidates: Google's official Gmail MCP server (in developer preview, OAuth; check that its
+      scopes can be kept read-only) or a maintained community server; decided at this step
 - [ ] 3.3 Source authority by question type: Jira for delivery status, Notion for intended plans, Gmail
       for human decisions
 - [ ] 3.4 Recency ranking, contradiction detection ("the Notion plan says June, Jira says August"),
@@ -145,6 +151,7 @@ unauthorized, empty-result and connector-failure cases each return an explicit, 
 | Database (Postgres + pgvector) | Neon | Managed Postgres with pgvector; database branches give CI a throwaway copy for migration tests |
 | Web client | Vercel | Static/edge hosting for the TypeScript client, preview deploys per pull request |
 | Traces | LangSmith (hosted) | Shareable trace links for the demo and the README |
+| MCP servers | Atlassian's hosted server for Jira; self-hosted ones (e.g. Notion) as Cloud Run sidecar containers | The API reaches every source over MCP; sidecars are reachable only from the API container |
 | Secrets | Cloud Run secrets / Vercel env vars | Never in the repo or the image |
 | CI/CD | GitHub Actions | Lint, types, tests, smoke evals, then deploy on `main` |
 
@@ -163,6 +170,14 @@ committing to it.
 ## Decisions still open
 
 - LLM provider and model (kept behind an interface, configured in `.env`)
-- Jira and Notion: official MCP server or REST API, decided when each connector step starts
+- Notion and Gmail MCP servers, decided at steps 3.1 and 3.2
+
+## Decisions made
+
+- Live sources connect over MCP; IssueSense is the MCP client, using the official `mcp` Python SDK
+- Jira: Atlassian's official Rovo MCP server with API-token auth (an org admin enables API-token
+  access in Atlassian Administration). Its tools can write, so IssueSense calls only an allowlist
+  of read-only tools; the seed script (1.4) writes demo data with the Jira REST API, outside the agent
+- No LLM provider yet: Phase 1 ships the provider interface and the deterministic no-LLM answer
 - Web client framework (e.g. Next.js or React + Vite), decided at Phase 7
 - Hosting accounts (Google Cloud, Neon, Vercel) are created by the project owner
