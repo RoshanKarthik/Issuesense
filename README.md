@@ -1,6 +1,8 @@
 # IssueSense
 
-IssueSense is an evidence-grounded engineering intelligence platform. It answers engineering questions across code, documentation, delivery systems, and decision records while preserving source locations, authorization context, uncertainty, and verifiable citations.
+IssueSense is an agentic RAG system over live data. Ask something like *"Summarize what changed in Project Atlas this quarter and identify the major risks"*: it breaks the question into sub-questions, queries Jira, Notion and Gmail, recalls relevant memory, and returns an answer where every claim cites the ticket, page or email that supports it. Guardrails block prompt injection and redact personal data, an evaluation suite runs in CI on every push, and the whole path is traced.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan and progress.
 
 
 ## Core rule
