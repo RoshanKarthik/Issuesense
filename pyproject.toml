@@ -39,6 +39,7 @@ observability = [
 issuesense-api = "apps.api.main:run"
 issuesense-create-key = "apps.api.auth:create_key_cli"
 issuesense-seed-jira = "packages.evaluation.seed_jira:seed_jira_cli"
+issuesense-check-jira = "packages.connectors.jira:check_jira_cli"
 
 [tool.hatch.version]
 path = "packages/common/__init__.py"

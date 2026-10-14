@@ -20,8 +20,8 @@ class FakeMcpClient:
         self.tools = tools
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    async def list_tools(self) -> list[str]:
-        return self.tools
+    async def list_tools(self) -> dict[str, dict[str, Any]]:
+        return {name: {"type": "object"} for name in self.tools}
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         self.calls.append((name, arguments))

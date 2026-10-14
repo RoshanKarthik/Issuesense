@@ -37,7 +37,9 @@ class ToolResult(BaseModel):
 class McpToolClient(Protocol):
     """The slice of an MCP client session that connectors use."""
 
-    async def list_tools(self) -> list[str]: ...
+    async def list_tools(self) -> dict[str, dict[str, Any]]:
+        """Every tool the server offers, mapped to its JSON input schema."""
+        ...
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult: ...
 
@@ -56,9 +58,14 @@ class AllowlistedToolClient:
         self.server = server
         self.allowed_tools = allowed_tools
 
+    async def tool_schemas(self) -> dict[str, dict[str, Any]]:
+        """Input schemas of the allowlisted tools the server offers (never the other tools)."""
+        offered = await self._client.list_tools()
+        return {name: schema for name, schema in offered.items() if name in self.allowed_tools}
+
     async def missing_tools(self) -> set[str]:
         """Allowlisted tools the server does not offer (a misconfiguration to report at startup)."""
-        return set(self.allowed_tools) - set(await self._client.list_tools())
+        return set(self.allowed_tools) - set(await self.tool_schemas())
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         if name not in self.allowed_tools:

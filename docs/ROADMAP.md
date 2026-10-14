@@ -47,9 +47,10 @@ One question → Jira → evidence → cited answer, with no agent loop yet.
 - [x] 1.4 Demo workspace: a seed script that fills a test Jira project with a realistic quarter of
       "Project Atlas" work (goals, slipped deadlines, blockers, status changes). Used by the demo and
       the evals; never your personal data. *Live run pending: needs the owner's Jira site.*
-- [ ] 1.5 Real Jira connector over MCP: IssueSense is the MCP client (official `mcp` SDK) and talks to
+- [x] 1.5 Real Jira connector over MCP: IssueSense is the MCP client (official `mcp` SDK) and talks to
       Atlassian's official Rovo MCP server with API-token auth. Only allowlisted read-only tools are
-      callable; tests run against a fake in-memory MCP server
+      callable; tests run against a fake in-memory MCP server. *Live check pending:
+      `issuesense-check-jira` once the owner's site is set up.*
 - [ ] 1.6 Normalize Jira issues, comments and changelogs into `Evidence` with URLs and locations
 - [ ] 1.7 LLM provider interface and grounded synthesis; without a configured LLM, a deterministic
       answer that lists retrieved evidence and invents nothing

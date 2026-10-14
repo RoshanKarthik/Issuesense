@@ -21,8 +21,8 @@ class _RecordingClient:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def list_tools(self) -> list[str]:
-        return ["search", "createJiraIssue", "deleteComment"]
+    async def list_tools(self) -> dict[str, dict[str, Any]]:
+        return {name: {} for name in ["search", "createJiraIssue", "deleteComment"]}
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         self.calls.append(name)
