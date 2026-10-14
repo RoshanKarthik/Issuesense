@@ -66,7 +66,7 @@ with Basic auth). The live run against the owner's Jira site is pending:
 
 ## Phase 2: Agentic planning, multi-hop, tracing
 
-- [ ] 2.1 LangGraph typed workflow: plan → retrieve → assess evidence → synthesize → verify
+- [x] 2.1 LangGraph typed workflow: plan → retrieve → assess evidence → synthesize → verify
 - [ ] 2.2 Planner: query rewrite and decomposition into sub-questions, including time ranges
       ("this quarter")
 - [ ] 2.3 Multiple tool calls per question, and follow-up retrieval when the assessment finds gaps

@@ -89,4 +89,4 @@ mypy
 pytest
 ```
 
-Later phases add optional dependency groups: `.[agent]`, `.[persistence]`, `.[observability]`.
+Later phases add optional dependency groups: `.[persistence]`, `.[observability]`.
