@@ -62,7 +62,7 @@ unauthorized, empty-result and connector-failure cases each return an explicit, 
 
 **Status:** met against the fake Atlassian MCP server (in-process and over real Streamable HTTP
 with Basic auth). The live run against the owner's Jira site is pending:
-, then , then a question to .
+`issuesense-seed-jira --apply`, then `issuesense-check-jira`, then a question to `/v1/query`.
 
 ## Phase 2: Agentic planning, multi-hop, tracing
 
