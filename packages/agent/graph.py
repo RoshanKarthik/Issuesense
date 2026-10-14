@@ -21,22 +21,21 @@ leaves without passing citation verification.
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import date
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
-from packages.agent.planner import Planner, RulePlanner
-from packages.agent.state import Budget, GraphState, RetrievalRecord, RetrievalTask
-from packages.agent.synthesis import MIN_QUESTION_COVERAGE, GroundedSynthesizer
+from packages.agent import tracing
+from packages.agent.context import RunContext
+from packages.agent.state import GraphState, RetrievalRecord, RetrievalTask
+from packages.agent.synthesis import MIN_QUESTION_COVERAGE
 from packages.common.errors import ConnectorError
-from packages.common.models import Answer, Answerability, Evidence, utc_now
+from packages.common.models import Answer, Answerability, Evidence
 from packages.connectors.base import RetrievalRequest, grant_for
-from packages.connectors.lazy import LazyConnector
 from packages.evidence.citations import verify_answer
 from packages.evidence.jira import normalize_jira_records
 from packages.evidence.pool import merge_evidence, within_period
@@ -59,21 +58,6 @@ GAP_DEPTH = 5  # how many of a sub-question's best items decide whether it is co
 MAX_FOLLOW_KEYS = 10
 
 Update = dict[str, Any]
-
-
-@dataclass
-class RunContext:
-    """Per-run dependencies, kept out of the state so the state stays plain data."""
-
-    jira: LazyConnector | None
-    site_url: str
-    projects: list[str]  # configured project keys
-    synthesizer: GroundedSynthesizer
-    planner: Planner = field(default_factory=RulePlanner)
-    budget: Budget = field(default_factory=Budget)
-    today: Callable[[], date] = field(default=lambda: utc_now().date())
-    retrieval_limit: int = 20
-    retrieval_timeout: float = 60.0  # seconds for one retrieval, details included
 
 
 def mentioned_projects(question: str, configured: list[str]) -> list[str]:
@@ -161,6 +145,26 @@ async def _run_task(task: RetrievalTask, state: GraphState, ctx: RunContext) -> 
         updated_since=task.updated_since,
         keys=task.keys,
     )
+    start = time.perf_counter()
+    outcome = await _retrieve_one(task, request, state, ctx)
+    ctx.trace.emit(
+        "retrieve",
+        "retrieval.failed" if outcome.error else "retrieval.completed",
+        {
+            **tracing.task_summary(task),
+            "items": len(outcome.evidence),
+            "error": outcome.error,
+            "warnings": outcome.warnings,
+        },
+        (time.perf_counter() - start) * 1000,
+    )
+    return outcome
+
+
+async def _retrieve_one(
+    task: RetrievalTask, request: RetrievalRequest, state: GraphState, ctx: RunContext
+) -> _Outcome:
+    assert ctx.jira is not None
     try:
         async with asyncio.timeout(ctx.retrieval_timeout):
             jira = await ctx.jira.get()
@@ -392,13 +396,16 @@ def _after_verify(state: GraphState) -> Literal["synthesize", "finish"]:
 
 def build_graph() -> CompiledStateGraph[GraphState, RunContext, GraphState, GraphState]:
     builder = StateGraph(GraphState, context_schema=RunContext)
-    builder.add_node("authorize", authorize)
-    builder.add_node("plan", plan)
-    builder.add_node("retrieve", retrieve)
-    builder.add_node("assess", assess)
-    builder.add_node("synthesize", synthesize)
-    builder.add_node("verify", verify)
-    builder.add_node("finish", finish)
+    for name, node, summary in (
+        ("authorize", authorize, tracing.authorize_summary),
+        ("plan", plan, tracing.plan_summary),
+        ("retrieve", retrieve, tracing.retrieve_summary),
+        ("assess", assess, tracing.assess_summary),
+        ("synthesize", synthesize, tracing.synthesize_summary),
+        ("verify", verify, tracing.verify_summary),
+        ("finish", finish, tracing.finish_summary),
+    ):
+        builder.add_node(name, tracing.traced(name, node, summary))
 
     builder.add_edge(START, "authorize")
     builder.add_conditional_edges("authorize", _settled_or("plan"), ["plan", "finish"])

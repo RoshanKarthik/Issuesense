@@ -6,7 +6,8 @@ from datetime import date
 
 import pytest
 
-from packages.agent.graph import RunContext, build_graph
+from packages.agent.context import RunContext
+from packages.agent.graph import build_graph
 from packages.agent.pipeline import QueryPipeline
 from packages.agent.planner import LlmPlanner
 from packages.agent.state import GraphState

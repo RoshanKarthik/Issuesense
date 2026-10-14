@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     llm_base_url: HttpsUrl | None = Field(default=None, validation_alias="LLM_BASE_URL")
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
 
+    # Optional LangSmith tracing of graph runs; off unless the key is set.
+    langsmith_api_key: SecretStr | None = Field(default=None, validation_alias="LANGSMITH_API_KEY")
+    langsmith_project: str = Field(default="issuesense", validation_alias="LANGSMITH_PROJECT")
+    # Another region or a self-hosted LangSmith (default: LangSmith's own endpoint).
+    langsmith_endpoint: HttpsUrl | None = Field(default=None, validation_alias="LANGSMITH_ENDPOINT")
+
     # Further connector and provider settings are added with the phase that introduces them.
 
     model_config = SettingsConfigDict(

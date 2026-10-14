@@ -17,6 +17,8 @@ from packages.common.models import Answer, Answerability
 from packages.common.settings import settings
 from packages.connectors.jira import open_jira_connector
 from packages.guardrails.input import FindingCategory, InputAssessment, Triage, assess_question
+from packages.observability.langsmith import LangSmithTracing
+from packages.observability.trace import TraceRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ def get_pipeline() -> QueryPipeline:
         synthesizer=GroundedSynthesizer(provider),
         planner=planner_for(provider),
         retrieval_timeout=settings.retrieval_timeout_seconds,
+        tracing=LangSmithTracing(settings),
     )
 
 
@@ -89,7 +92,9 @@ async def query(
             ),
         )
 
-    result = await pipeline.answer(assessment.normalized_text, caller)
+    result = await pipeline.answer(
+        assessment.normalized_text, caller, TraceRecorder(query_id, caller.user_id)
+    )
     logger.info(
         "Answered query %s: %s, %d citation(s), projects %s",
         query_id,
