@@ -39,7 +39,7 @@ Each phase is split into small steps. A step is done when it has code, tests, an
 One question → Jira → evidence → cited answer, with no agent loop yet.
 
 - [x] 1.1 Typed `POST /v1/query` request/response and one error shape for every endpoint
-- [ ] 1.2 Input checks: validation, prompt-injection and tool-intent detection, cheap triage
+- [x] 1.2 Input checks: validation, prompt-injection and tool-intent detection, cheap triage
       (reject or short-circuit questions that need no retrieval)
 - [ ] 1.3 Caller authentication (API keys mapped to a user and scopes) and the MCP connector
       interface, with an access check before every retrieval and an allowlist of read-only tools per

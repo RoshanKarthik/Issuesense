@@ -2,9 +2,17 @@
 
 from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from packages.common.models import Answer, Evidence
+from packages.guardrails.input import Triage
 
 MAX_QUESTION_LENGTH = 4000
 
@@ -23,16 +31,28 @@ class QueryRequest(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"examples": [{"question": "Where is request authentication handled?"}]},
+        json_schema_extra={
+            "examples": [
+                {"question": "What changed in Project Atlas this quarter, and what are the risks?"}
+            ]
+        },
     )
 
     question: Question
+
+    @field_validator("question")
+    @classmethod
+    def _has_words(cls, question: str) -> str:
+        if not any(char.isalnum() for char in question):
+            raise ValueError("question must contain at least one letter or digit")
+        return question
 
 
 class QueryResponse(BaseModel):
     """A grounded answer together with every piece of evidence it cites."""
 
     query_id: str
+    triage: Triage = Triage.RETRIEVAL
     answer: Answer
     evidence: list[Evidence] = Field(default_factory=list)
 

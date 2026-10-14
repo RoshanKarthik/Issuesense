@@ -19,6 +19,7 @@ class Answerability(StrEnum):
     CONFLICTING_EVIDENCE = "CONFLICTING_EVIDENCE"
     TOOL_FAILURE = "TOOL_FAILURE"
     UNAUTHORIZED_EVIDENCE = "UNAUTHORIZED_EVIDENCE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"  # no factual question was asked, so nothing is claimed
 
 
 class AuthorizationContext(BaseModel):
